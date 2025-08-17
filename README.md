@@ -221,7 +221,7 @@ ollama pull qwen2:8b
 
 ### 5. Executar Interface Streamlit
 ```bash
-streamlit run src/ui/streamlit_app.py
+streamlit run streamlit_app.py
 ```
 
 ## Vantagens da Arquitetura
