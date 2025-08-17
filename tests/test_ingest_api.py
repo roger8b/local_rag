@@ -25,8 +25,9 @@ class TestIngestEndpoint:
         # Prepare a test file
         test_content = "Este e um documento de teste para ingestao via API.".encode('utf-8')
         files = {"file": ("test.txt", test_content, "text/plain")}
+        data = {"embedding_provider": "ollama"}  # ← Parâmetro essencial!
         
-        response = client.post("/api/v1/ingest", files=files)
+        response = client.post("/api/v1/ingest", files=files, data=data)
         
         # Initially this will fail with 404, then we implement to make it pass
         assert response.status_code in [200, 201], f"Expected success status, got {response.status_code}"
@@ -162,7 +163,10 @@ class TestIngestionServiceUnit:
             assert result["chunks_created"] == 2
             
             mock_chunks.assert_called_once_with("Test content for chunking")
-            mock_embeddings.assert_called_once_with(["chunk1", "chunk2"])
+            # Allow provider kwarg (default 'ollama')
+            args, kwargs = mock_embeddings.call_args
+            assert list(args) == [["chunk1", "chunk2"]]
+            assert kwargs.get("provider") in (None, "ollama")
             mock_save.assert_called_once()
 
 

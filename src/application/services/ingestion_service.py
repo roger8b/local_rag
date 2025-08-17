@@ -95,42 +95,43 @@ class IngestionService:
             raise ValueError(f"Provedor de embedding desconhecido: {provider}")
 
     async def _generate_embeddings_ollama(self, chunks: List[str]) -> List[List[float]]:
-        """Generate embeddings for chunks using Ollama in a single batch call."""
+        """Generate embeddings for chunks using Ollama with the new /api/embed endpoint."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
+                # ✅ CORREÇÃO: Usar a API nova /api/embed que suporta batch
                 response = await client.post(
-                    f"{settings.ollama_base_url}/api/embeddings",
-                    json={"model": settings.embedding_model, "input": chunks},
+                    f"{settings.ollama_base_url}/api/embed",  # ← API nova!
+                    json={
+                        "model": settings.embedding_model, 
+                        "input": chunks  # ← Lista de chunks - suportado na API nova!
+                    },
                 )
                 rfs = response.raise_for_status()
                 import inspect as _inspect
                 if _inspect.iscoroutine(rfs):
                     await rfs
+                
                 result = response.json()
                 if _inspect.iscoroutine(result):
                     result = await result
 
-                # Prefer explicit batch field; fallback if provider returns a different shape
-                batch_embeddings = None
-                if isinstance(result, dict):
-                    if "embeddings" in result and isinstance(result["embeddings"], list):
-                        batch_embeddings = result["embeddings"]
-                    elif "data" in result and isinstance(result["data"], list):
-                        # Some providers return {data: [{embedding: [...]}, ...]}
-                        batch_embeddings = [item.get("embedding") for item in result["data"]]
-                    elif "embedding" in result:
-                        # Single embedding (unexpected in batch). Normalize.
-                        batch_embeddings = [result["embedding"]]
+                # ✅ A API nova retorna {"embeddings": [[...], [...], ...]}
+                if isinstance(result, dict) and "embeddings" in result:
+                    batch_embeddings = result["embeddings"]
+                    
+                    if not isinstance(batch_embeddings, list):
+                        raise Exception("Invalid embeddings format from Ollama")
+                    
+                    if len(batch_embeddings) != len(chunks):
+                        raise Exception(
+                            f"Embedding count mismatch: expected {len(chunks)}, got {len(batch_embeddings)}"
+                        )
+                    
+                    logger.info(f"Successfully generated {len(batch_embeddings)} embeddings using batch API")
+                    return batch_embeddings
+                else:
+                    raise Exception("Invalid response format from Ollama embed endpoint")
 
-                if batch_embeddings is None:
-                    raise Exception("Invalid response format from Ollama embeddings endpoint")
-
-                if len(batch_embeddings) != len(chunks):
-                    raise Exception(
-                        f"Embedding count mismatch: expected {len(chunks)}, got {len(batch_embeddings)}"
-                    )
-
-                return batch_embeddings
             except (httpx.RequestError, httpx.HTTPStatusError) as e:
                 # In test environments or when running without Ollama, fall back to zero embeddings
                 if os.getenv("PYTEST_CURRENT_TEST"):
@@ -314,8 +315,8 @@ class IngestionService:
             if not chunks:
                 raise ValueError("No content to process after chunking")
             
-            # Generate embeddings
-            embeddings = await self._generate_embeddings(chunks)
+            # Generate embeddings using selected provider
+            embeddings = await self._generate_embeddings(chunks, provider=embedding_provider)
             logger.info(f"Generated embeddings for {len(embeddings)} chunks")
             
             # Save to Neo4j

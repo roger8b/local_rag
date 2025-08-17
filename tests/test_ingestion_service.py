@@ -1,11 +1,16 @@
-
+import os
 import pytest
+
 from unittest.mock import patch, AsyncMock
 
 from src.application.services.ingestion_service import IngestionService
 
 # Mock para simular a resposta da API do Ollama
-mock_ollama_response = {"embedding": [0.1] * 768}
+mock_ollama_response = {
+    "embeddings": [
+        [0.1, 0.2, 0.3, 0.4, 0.5]  # Lista de listas - suporta múltiplos chunks
+    ]
+}
 
 # Mock para simular a resposta da API da OpenAI
 mock_openai_response = {"data": [{"embedding": [0.2] * 1536}]} # OpenAI usa uma dimensão diferente
@@ -31,7 +36,7 @@ async def test_generate_embeddings_uses_ollama_by_default(mock_post, ingestion_s
     
     mock_post.assert_called_once()
     called_url = mock_post.call_args[0][0]
-    assert "localhost:11434/api/embeddings" in called_url # URL do Ollama
+    assert "http://localhost:11434/api/embed" in called_url # URL do Ollama
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.post", new_callable=AsyncMock)
@@ -57,7 +62,9 @@ async def test_generate_embeddings_raises_error_if_openai_key_is_missing(ingesti
     """
     RED: Testa se um erro é levantado ao tentar usar OpenAI sem uma chave de API.
     """
-    with patch("os.getenv", return_value=None): # Simula a falta da chave
+    with patch.dict(os.environ, {'OPENAI_API_KEY': ''}, clear=False), \
+         patch('src.config.settings.settings.openai_api_key', None):
+        
         chunks = ["Teste sem chave."]
         with pytest.raises(ValueError, match="OPENAI_API_KEY não configurada"):
             await ingestion_service._generate_embeddings(chunks, provider="openai")
