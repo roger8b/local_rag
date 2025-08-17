@@ -97,6 +97,27 @@ ollama>=0.1.0
 python-dotenv>=1.0.0
 ```
 
+## Otimizações de Ingestão (Fase 4.2)
+
+- Batch no Ollama: geração de embeddings em lote com uma única chamada ao endpoint (`input` como lista de chunks), reduzindo latência e sobrecarga.
+- Inserção em massa no Neo4j: persistência de todos os chunks em uma única transação usando `UNWIND $chunks_data AS chunk`.
+- Dimensão de embeddings da OpenAI configurável: uso do parâmetro `dimensions` (padrão 256) para reduzir custo/armazenamento e ajustar o índice vetorial.
+
+### Variáveis de Configuração Relevantes
+- `OPENAI_API_KEY`: chave para uso de embeddings da OpenAI (somente ingestão).
+- `OPENAI_EMBEDDING_DIMENSIONS` (env) / `settings.openai_embedding_dimensions` (código): dimensão dos embeddings OpenAI (default 256). Esta dimensão é usada:
+  - No payload enviado à API (`{"dimensions": <valor>}`)
+  - Na criação/verificação do índice vetorial (Neo4j) via `_ensure_vector_index`.
+
+Exemplo `.env` (não commitar este arquivo):
+```
+# OpenAI
+OPENAI_API_KEY=sk-your-openai-key
+OPENAI_EMBEDDING_DIMENSIONS=256
+```
+
+Observação: `.env` está no `.gitignore` e não deve ser versionado. Use `.env.example` como referência.
+
 ### Infraestrutura
 - **Python**: 3.9+
 - **Neo4j**: 5.0+ (Community ou Enterprise)
