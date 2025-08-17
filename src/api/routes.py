@@ -9,10 +9,39 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["query"])
 
 
-@router.post("/query", response_model=QueryResponse, responses={
-    422: {"model": ErrorResponse, "description": "Validation Error"},
-    500: {"model": ErrorResponse, "description": "Internal Server Error"}
-})
+@router.post(
+    
+    "/query",
+    response_model=QueryResponse,
+    summary="Executa consulta RAG",
+    operation_id="postQuery",
+    responses={
+        200: {
+            "description": "Resposta gerada com sucesso",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "answer": "Os principais componentes são: (1) retriever vetorial para recuperar contextos relevantes, (2) gerador LLM para formular a resposta, e (3) storage/índice para persistência.",
+                        "sources": [
+                            {
+                                "text": "O sistema RAG usa um retriever baseado em vetores e um gerador LLM.",
+                                "score": 0.87,
+                            },
+                            {
+                                "text": "As fontes retornadas incluem os trechos mais relevantes do documento.",
+                                "score": 0.82,
+                            },
+                        ],
+                        "question": "Quais são os componentes principais do sistema RAG?",
+                    }
+                }
+            },
+        },
+        404: {"model": ErrorResponse, "description": "No relevant documents found"},
+        422: {"model": ErrorResponse, "description": "Validation Error"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"},
+    },
+)
 async def query_endpoint(request: QueryRequest):
     """
     Query endpoint for RAG (Retrieval-Augmented Generation)

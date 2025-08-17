@@ -8,11 +8,38 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+# OpenAPI/Swagger tags metadata
+tags_metadata = [
+    {
+        "name": "query",
+        "description": "Endpoints para consulta RAG (recuperação + geração). Envie uma pergunta e receba uma resposta com as fontes.",
+    },
+    {
+        "name": "health",
+        "description": "Endpoints de verificação de saúde e status da API.",
+    },
+]
+
+# Create FastAPI app with Swagger/Redoc enabled
 app = FastAPI(
     title=settings.api_title,
     version="1.0.0",
-    description="Local RAG API for document-based question answering"
+    description="Local RAG API for document-based question answering",
+    openapi_url="/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    swagger_ui_parameters={
+        "defaultModelsExpandDepth": -1,
+        "displayRequestDuration": True,
+    },
+    contact={
+        "name": "Local RAG Maintainers",
+        "email": "roger.8b@gmail.com",
+    },
+    license_info={
+        "name": "Proprietary",
+    },
+    openapi_tags=tags_metadata,
 )
 
 # Add CORS middleware
@@ -28,13 +55,13 @@ app.add_middleware(
 app.include_router(router)
 
 
-@app.get("/")
+@app.get("/", tags=["health"], summary="Status da API")
 async def root():
     """Health check endpoint"""
     return {"message": "Local RAG API is running", "version": "1.0.0"}
 
 
-@app.get("/health")
+@app.get("/health", tags=["health"], summary="Health check")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
