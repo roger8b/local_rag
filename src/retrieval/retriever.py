@@ -36,7 +36,7 @@ class VectorRetriever:
         """Search for similar chunks in Neo4j using vector similarity"""
         with self.driver.session() as session:
             query = """
-            CALL db.index.vector.queryNodes('chunks_vector_index', $top_k, $embedding) 
+            CALL db.index.vector.queryNodes('document_embeddings', $top_k, $embedding) 
             YIELD node, score
             RETURN node.text as text, score
             ORDER BY score DESC

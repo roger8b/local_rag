@@ -1,4 +1,4 @@
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from typing import Optional
 
 
@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
     embedding_model: str = "nomic-embed-text"
-    llm_model: str = "qwen2:8b"
+    llm_model: str = "qwen3:8b"
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379"
