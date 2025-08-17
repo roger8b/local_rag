@@ -8,28 +8,32 @@ class FakeSt:
         self._spinners = []
         self._user_input = user_input
         self.session_state = {}
+        self._current_role = None
 
     # UI primitives
     def title(self, *_args, **_kwargs):
         self._title_called = True
 
     def chat_message(self, role):
-        # Capture messages via context manager protocol
-        class Msg:
+        # Context manager similar to Streamlit behavior
+        class Ctx:
             def __init__(self, outer, role):
                 self.outer = outer
                 self.role = role
 
             def __enter__(self):
-                return self
+                self.outer._current_role = self.role
+                return self.outer
 
             def __exit__(self, exc_type, exc, tb):
+                self.outer._current_role = None
                 return False
 
-            def markdown(self, text):
-                self.outer._messages_rendered.append({"role": self.role, "text": text})
+        return Ctx(self, role)
 
-        return Msg(self, role)
+    def markdown(self, text):
+        # Record rendered markdown under the current role (if any)
+        self._messages_rendered.append({"role": self._current_role, "text": text})
 
     def chat_input(self, _label):
         return self._user_input
@@ -100,4 +104,3 @@ def test_query_interface_error_flow():
     assert len(st.session_state["messages"]) == 2
     assert st.session_state["messages"][1]["role"] == "assistant"
     assert "Desculpe" in st.session_state["messages"][1]["content"]
-

@@ -23,16 +23,16 @@ def render_page(rag_client=None, st=None):
 
     # Render existing messages
     for msg in st.session_state["messages"]:
-        with st.chat_message(msg["role"]) as cm:  # type: ignore[assignment]
-            cm.markdown(msg["content"])  # type: ignore[attr-defined]
+        with st.chat_message(msg["role"]):  # type: ignore[attr-defined]
+            st.markdown(msg["content"])  # type: ignore[attr-defined]
 
     # Chat input
     user_input = st.chat_input("Faça sua pergunta")  # type: ignore[attr-defined]
     if user_input:
         # Append user message and re-render
         st.session_state["messages"].append({"role": "user", "content": user_input})
-        with st.chat_message("user") as cm:
-            cm.markdown(user_input)  # type: ignore[attr-defined]
+        with st.chat_message("user"):
+            st.markdown(user_input)  # type: ignore[attr-defined]
 
         # Call backend with loading indicator
         with st.spinner("Processando..."):
@@ -41,13 +41,13 @@ def render_page(rag_client=None, st=None):
         if result.get("ok"):
             answer = result["data"].get("answer", "")
             st.session_state["messages"].append({"role": "assistant", "content": answer})
-            with st.chat_message("assistant") as cm:
-                cm.markdown(answer)  # type: ignore[attr-defined]
+            with st.chat_message("assistant"):
+                st.markdown(answer)  # type: ignore[attr-defined]
         else:
             friendly = "Desculpe, não consegui processar sua pergunta. Tente novamente."
             st.session_state["messages"].append({"role": "assistant", "content": friendly})
-            with st.chat_message("assistant") as cm:
-                cm.markdown(friendly)  # type: ignore[attr-defined]
+            with st.chat_message("assistant"):
+                st.markdown(friendly)  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":
