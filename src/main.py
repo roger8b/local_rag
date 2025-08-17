@@ -15,6 +15,10 @@ tags_metadata = [
         "description": "Endpoints para consulta RAG (recuperação + geração). Envie uma pergunta e receba uma resposta com as fontes.",
     },
     {
+        "name": "ingest",
+        "description": "Endpoints para ingestão de documentos. Faça upload de arquivos .txt para adicionar à base de conhecimento.",
+    },
+    {
         "name": "health",
         "description": "Endpoints de verificação de saúde e status da API.",
     },

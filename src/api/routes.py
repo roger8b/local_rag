@@ -1,20 +1,89 @@
-from fastapi import APIRouter, HTTPException, status
-from src.models.api_models import QueryRequest, QueryResponse, ErrorResponse
+from fastapi import APIRouter, HTTPException, status, UploadFile, File
+from src.models.api_models import QueryRequest, QueryResponse, ErrorResponse, IngestResponse
 from src.retrieval.retriever import VectorRetriever
 from src.generation.generator import ResponseGenerator
+from src.application.services.ingestion_service import IngestionService, is_valid_file_type
 import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["query"])
+router = APIRouter(prefix="/api/v1")
 
 
 @router.post(
+    "/ingest",
+    response_model=IngestResponse,
+    status_code=201,
+    summary="Ingerir documento via upload",
+    operation_id="postIngest",
+    tags=["ingest"],
+    responses={
+        201: {"model": IngestResponse, "description": "Document successfully ingested"},
+        415: {"model": ErrorResponse, "description": "Unsupported Media Type"},
+        422: {"model": ErrorResponse, "description": "Validation Error"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"},
+    },
+)
+async def ingest_endpoint(file: UploadFile = File(...)):
+    """
+    Ingest a document file into the RAG system
     
+    - **file**: Text file (.txt) to be processed and added to the knowledge base
+    
+    The file will be processed, split into chunks, embedded, and stored in Neo4j.
+    """
+    try:
+        # Validate file type
+        if not is_valid_file_type(file.filename):
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Unsupported file type. Only .txt files are supported. Received: {file.filename}"
+            )
+        
+        # Read file content
+        file_content = await file.read()
+        
+        if not file_content:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="File is empty"
+            )
+        
+        # Initialize ingestion service
+        ingestion_service = IngestionService()
+        
+        try:
+            # Process the file
+            result = await ingestion_service.ingest_from_file_upload(file_content, file.filename)
+            
+            return IngestResponse(
+                status="success",
+                filename=file.filename,
+                document_id=result["document_id"],
+                chunks_created=result["chunks_created"],
+                message="Document successfully ingested and indexed"
+            )
+            
+        finally:
+            # Clean up resources
+            ingestion_service.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing file upload: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+
+@router.post(
     "/query",
     response_model=QueryResponse,
     summary="Executa consulta RAG",
     operation_id="postQuery",
+    tags=["query"],
     responses={
         200: {
             "description": "Resposta gerada com sucesso",
