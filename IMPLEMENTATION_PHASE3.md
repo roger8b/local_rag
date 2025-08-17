@@ -11,13 +11,13 @@ A Fase 3 introduz uma interface de chat na web construída com Streamlit para re
 ### ✅ História 1: Interface de Chat na Web para Consultas RAG
 
 **Implementação Completa:**
-- ✅ Nova página Streamlit `src/ui/pages/02_query_interface.py` (executável pelo Streamlit)
 - ✅ Lógica isolada em `src/ui/pages/query_interface.py` com função `render_page()`
 - ✅ Cliente de API `src/api/client.py` (HTTP) com fallback para `API_BASE_URL`
 - ✅ Histórico de conversa persistente em `st.session_state.messages`
 - ✅ Indicador de carregamento (`st.spinner`) durante o processamento
 - ✅ Exibição de mensagens em formato de chat com `st.chat_message`
 - ✅ Tratamento de erros (mensagem amigável quando API indisponível ou erro HTTP)
+- ✅ Integração na aplicação principal `streamlit_app.py` (consolidado na Fase 4)
 
 **Critérios de Aceite Validados:**
 - ✅ AC1: Título e input de chat visíveis ao acessar a página
@@ -47,7 +47,7 @@ A Fase 3 introduz uma interface de chat na web construída com Streamlit para re
 
 - `src/api/client.py`: Classe `RAGClient` com `query(question)` retornando `{ok, data|error}`
 - `src/ui/pages/query_interface.py`: Função `render_page(rag_client=None, st=None)` responsável pela UI
-- `src/ui/pages/02_query_interface.py`: Wrapper para execução pelo Streamlit
+- `streamlit_app.py`: Aplicação principal consolidada (implementada na Fase 4)
 - `src/main.py`: Metadados de OpenAPI/Swagger aprimorados (já na Fase 2.1)
 - `pytest.ini`: `asyncio_mode = auto` para permitir testes assíncronos sem decorators
 
@@ -62,7 +62,7 @@ A Fase 3 introduz uma interface de chat na web construída com Streamlit para re
    ```
 3. Execute o Streamlit:
    ```bash
-   streamlit run src/ui/pages/02_query_interface.py
+   streamlit run streamlit_app.py
    ```
 4. Acesse `http://localhost:8501` no navegador.
 
