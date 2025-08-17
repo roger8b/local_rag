@@ -202,9 +202,32 @@ docker run \
 ```
 
 ### 3. Configuração
+
+#### 3.1 Configuração Básica
 ```bash
 cp .env.example .env
-# Editar configurações no arquivo .env
+# Editar configurações no arquivo .env se necessário
+```
+
+#### 3.2 Configuração OpenAI (Opcional)
+Para embeddings mais rápidos, configure sua API key do OpenAI:
+
+```bash
+# Método 1: Variável de ambiente (recomendado)
+export OPENAI_API_KEY="sk-your-openai-key-here"
+
+# Método 2: Arquivo .env
+echo "OPENAI_API_KEY=sk-your-openai-key-here" >> .env
+
+# Método 3: Definir ao executar
+OPENAI_API_KEY="sk-your-key" streamlit run streamlit_app.py
+```
+
+**Obter API Key**: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+#### 3.3 Verificar Configuração
+```bash
+python scripts/check_config.py
 ```
 
 ### 4. Ollama Setup
@@ -223,6 +246,23 @@ ollama pull qwen2:8b
 ```bash
 streamlit run streamlit_app.py
 ```
+
+## Opções de Embedding
+
+O sistema suporta dois tipos de embeddings para processamento de documentos:
+
+### 🏠 Local (Ollama) - Padrão
+- **Vantagens**: Totalmente privado, sem envio de dados externos, gratuito
+- **Desvantagens**: Mais lento, requer recursos computacionais locais
+- **Uso**: Ideal para dados sensíveis ou quando privacidade é prioridade
+
+### ☁️ OpenAI
+- **Vantagens**: Muito mais rápido, embeddings de alta qualidade
+- **Desvantagens**: Requer API key (paga), dados enviados para OpenAI
+- **Uso**: Ideal quando velocidade é prioridade e dados não são sensíveis
+
+### 💬 Consultas
+**Importante**: Independente do tipo de embedding escolhido, **todas as consultas sempre usam o modelo local** (qwen2:8b via Ollama). Apenas o processamento inicial de documentos pode usar OpenAI.
 
 ## Vantagens da Arquitetura
 

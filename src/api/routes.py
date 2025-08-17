@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from src.models.api_models import QueryRequest, QueryResponse, ErrorResponse, IngestResponse
 from src.retrieval.retriever import VectorRetriever
 from src.generation.generator import ResponseGenerator
@@ -24,11 +24,12 @@ router = APIRouter(prefix="/api/v1")
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
     },
 )
-async def ingest_endpoint(file: UploadFile = File(...)):
+async def ingest_endpoint(file: UploadFile = File(...), embedding_provider: str = Form("ollama")):
     """
     Ingest a document file into the RAG system
     
     - **file**: Text file (.txt) to be processed and added to the knowledge base
+    - **embedding_provider**: The embedding provider to use ('ollama' or 'openai')
     
     The file will be processed, split into chunks, embedded, and stored in Neo4j.
     """
@@ -54,7 +55,9 @@ async def ingest_endpoint(file: UploadFile = File(...)):
         
         try:
             # Process the file
-            result = await ingestion_service.ingest_from_file_upload(file_content, file.filename)
+            result = await ingestion_service.ingest_from_file_upload(
+                file_content, file.filename, embedding_provider=embedding_provider
+            )
             
             return IngestResponse(
                 status="success",

@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     embedding_model: str = "nomic-embed-text"
     llm_model: str = "qwen3:8b"
+    embedding_dimension: int = 768
+    embedding_batch_size: int = 32
+    embedding_max_retries: int = 10
+
+    # OpenAI Configuration
+    openai_api_key: Optional[str] = None
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379"
@@ -21,6 +27,10 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_title: str = "Local RAG API"
     api_version: str = "v1"
+    api_base_url: str = "http://localhost:8000"
+    default_timeout: int = 120
+    log_level: str = "INFO"
+    debug: bool = False
     
     class Config:
         env_file = ".env"
