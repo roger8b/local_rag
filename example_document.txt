@@ -1,0 +1,39 @@
+Ingestão de Documentos no Sistema RAG
+
+A ingestão é o processo fundamental que permite ao sistema RAG (Retrieval-Augmented Generation) processar e indexar documentos para posterior recuperação e geração de respostas.
+
+Como Funciona a Ingestão:
+
+1. Carregamento do Documento
+O sistema utiliza a biblioteca LangChain para carregar documentos de texto (.txt). O processo é realizado através do TextLoader que lê o arquivo e extrai o conteúdo textual completo.
+
+2. Divisão em Chunks
+Após o carregamento, o texto é dividido em pedaços menores chamados "chunks" usando o RecursiveCharacterTextSplitter. Este componente divide o texto de forma inteligente, respeitando separadores naturais como quebras de linha e espaços, garantindo que o contexto seja preservado.
+
+Configurações de Chunking:
+- Tamanho do chunk: 1000 caracteres
+- Sobreposição: 200 caracteres
+- Separadores: ["\n\n", "\n", " ", ""]
+
+3. Geração de Embeddings
+Para cada chunk criado, o sistema gera um embedding vetorial usando o modelo nomic-embed-text através do Ollama. Os embeddings são representações numéricas densas que capturam o significado semântico do texto.
+
+4. Armazenamento no Neo4j
+Os chunks e seus respectivos embeddings são armazenados no banco de dados Neo4j como nós do tipo "Chunk". Cada nó possui as seguintes propriedades:
+- text: o conteúdo textual do chunk
+- embedding: o vetor de embedding (768 dimensões)
+- source_file: nome do arquivo original
+- chunk_index: índice do chunk no documento
+- created_at: timestamp de criação
+
+5. Indexação Vetorial
+O sistema cria um índice vetorial especial no Neo4j chamado "chunks_vector_index" que permite realizar buscas por similaridade semântica de forma eficiente. O índice utiliza a função de similaridade coseno para comparar os embeddings.
+
+Benefícios da Ingestão:
+
+- Organização: O texto é organizado em unidades menores e mais gerenciáveis
+- Busca Semântica: Os embeddings permitem encontrar conteúdo relevante mesmo quando as palavras exatas não correspondem
+- Eficiência: O índice vetorial torna as buscas rápidas mesmo com grandes volumes de dados
+- Contexto: A sobreposição entre chunks garante que o contexto não seja perdido nas divisões
+
+O processo de ingestão é executado através do script ingest_documents.py que automatiza todos esses passos e garante que os documentos sejam processados de forma consistente e confiável.
