@@ -62,3 +62,22 @@ class ErrorResponse(BaseModel):
             }
         }
     )
+
+
+class IngestResponse(BaseModel):
+    status: str = Field(..., description="Status of the ingestion process")
+    filename: str = Field(..., description="Name of the processed file")
+    document_id: Optional[str] = Field(None, description="ID of the created document")
+    chunks_created: Optional[int] = Field(None, description="Number of chunks created")
+    message: Optional[str] = Field(None, description="Additional information")
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "success",
+                "filename": "documento_exemplo.txt",
+                "document_id": "doc-abc123",
+                "chunks_created": 3,
+                "message": "Document successfully ingested and indexed"
+            }
+        }
+    )
