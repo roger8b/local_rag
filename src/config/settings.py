@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
+    # Default embedding dimensions for OpenAI text-embedding-3 models
+    openai_embedding_dimensions: int = 256
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379"
