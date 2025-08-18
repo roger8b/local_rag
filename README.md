@@ -118,6 +118,27 @@ OPENAI_EMBEDDING_DIMENSIONS=256
 
 Observação: `.env` está no `.gitignore` e não deve ser versionado. Use `.env.example` como referência.
 
+## Limpeza/Reset do Neo4j (Fase 4.3)
+
+Durante o desenvolvimento, pode ser necessário resetar o banco para um estado limpo. O projeto inclui um script utilitário para isso.
+
+Como usar
+- Alerta: esta ação é destrutiva e remove todos os nós `:Chunk` e o índice vetorial!
+- Execute o script e confirme digitando `yes` ou `sim`:
+  - `python scripts/clear_database.py`
+- O que o script faz:
+  - `DROP INDEX document_embeddings IF EXISTS`
+  - `MATCH (n:Chunk) DETACH DELETE n`
+  - Mensagens de status no console e fechamento do driver ao final
+- Após a limpeza:
+  - Uma nova ingestão recria automaticamente o índice vetorial (`document_embeddings`).
+  - A dimensão do índice passa a refletir a configuração atual (`OPENAI_EMBEDDING_DIMENSIONS`, default 256).
+
+Exemplo de fluxo
+1) Limpar o banco: `python scripts/clear_database.py` (confirme com `yes`/`sim`)
+2) Ingerir novamente via API Swagger (`/docs`) ou cURL:
+   - `curl -s -S -F "file=@temp/repomix-output-dylanaraps-pure-bash-bible.txt;type=text/plain" -F "embedding_provider=openai" http://localhost:8000/api/v1/ingest`
+
 ### Infraestrutura
 - **Python**: 3.9+
 - **Neo4j**: 5.0+ (Community ou Enterprise)

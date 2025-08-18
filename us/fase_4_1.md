@@ -42,6 +42,6 @@
 * **Banco de Dados:**
     * - Nenhuma alteração de schema é necessária. Os embeddings gerados pela OpenAI devem ter a mesma dimensão que os do Ollama, ou o índice vetorial precisará ser reconfigurado (ponto a ser verificado).
 * **Questões em Aberto / Riscos:**
-    * - **Dimensão dos Embeddings:** É crucial garantir que o modelo de embedding da OpenAI (ex: `text-embedding-3-small`) gere vetores com a mesma dimensão configurada no índice do Neo4j (atualmente 768 para `nomic-embed-text`). Se não for o caso, será necessário um plano de migração ou uma configuração mais complexa. **Ação:** Verificar a dimensão do modelo da OpenAI e ajustar o código ou a configuração do índice.
+    * - **Dimensão dos Embeddings:** É crucial garantir que o modelo de embedding da OpenAI (ex: `text-embedding-3-small`) gere vetores com a mesma dimensão configurada no índice do Neo4j (atualmente 256 para `nomic-embed-text`). Se não for o caso, será necessário um plano de migração ou uma configuração mais complexa. **Ação:** Verificar a dimensão do modelo da OpenAI e ajustar o código ou a configuração do índice.
     * - **Gerenciamento de Erros:** A comunicação com a API da OpenAI pode falhar por diversos motivos (chave inválida, cota excedida, etc.). O tratamento de erros precisa ser robusto.
     * - **Custo:** O uso da API da OpenAI gera custos. A interface deve deixar isso claro para o usuário. (Já está parcialmente feito).
