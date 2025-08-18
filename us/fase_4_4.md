@@ -1,0 +1,86 @@
+## Refinamento Colaborativo: Histórias da Fase 3: Flexibilização do Motor de Geração
+
+---
+### História 1: Refatoração do Serviço de Geração para Suporte a Múltiplos Provedores de LLM
+* **Tipo:** Técnica / Habilitadora
+
+#### Parte 1: Especificação Funcional (Visão do Product Owner)
+* **História de Usuário:** Como um Desenvolvedor, eu quero refatorar o serviço de geração de texto para que ele possa utilizar diferentes provedores de LLM (Ollama, OpenAI, Google Gemini) de forma intercambiável, para que o sistema se torne mais flexível e possamos otimizar custos e performance escolhendo o melhor modelo para cada cenário.
+* **Requisitos / Detalhes:**
+    * A seleção do provedor de LLM e de Embedding deve ser centralizada no arquivo de configurações (`src/config/settings.py`).
+    * Deve ser possível alterar o provedor em tempo de execução apenas modificando a configuração, sem a necessidade de alterar o código-fonte da aplicação.
+    * A implementação atual, que usa Ollama, deve ser mantida e adaptada para funcionar dentro da nova estrutura flexível.
+    * O sistema deve lançar um erro claro na inicialização se um provedor configurado não tiver uma implementação correspondente.
+* **Critérios de Aceite (ACs):**
+    * **AC 1:** Dado que a configuração em `settings.py` especifica `LLM_PROVIDER="ollama"`, quando eu envio uma requisição `POST` para `/query`, então o sistema continua funcionando como antes, utilizando o Ollama para gerar a resposta, e todos os testes existentes continuam passando.
+    * **AC 2:** Dado que a configuração em `settings.py` é alterada para um provedor ainda não implementado (e.g., `LLM_PROVIDER="anthropic"`), quando a aplicação tenta iniciar, então ela deve falhar com uma mensagem de erro informativa, como "Provedor de LLM 'anthropic' não suportado".
+    * **AC 3:** Dado que a estrutura foi refatorada, quando um novo desenvolvedor analisa o `src/generation/`, então a forma de adicionar um novo provedor de LLM é clara e segue um padrão definido (como implementar uma interface ou herdar de uma classe base).
+* **Definição de 'Pronto' (DoD Checklist):**
+    * [ ] Código revisado por um par (PR aprovado).
+    * [ ] Testes de unidade para a lógica de seleção de provedor foram criados e estão passando.
+    * [ ] Nenhuma regressão funcional foi introduzida (validado pelos testes de integração existentes).
+    * [ ] A configuração foi movida com sucesso para o arquivo `settings.py`.
+
+#### Parte 2: Especificação Técnica (Visão do Engenheiro)
+* **Abordagem Técnica Proposta:**
+    * Aplicar o padrão de projeto **Strategy** ou **Factory**. Criaremos uma interface (classe base abstrata) `LLMProvider` em `src/generation/` que define um contrato comum (e.g., um método `generate(prompt)`). A lógica atual do Ollama será movida para uma classe concreta `OllamaProvider` que implementa essa interface. Um factory ou um bloco `if/elif` no serviço de geração será responsável por instanciar o provedor correto com base na configuração.
+* **Backend:**
+    * - **Configuração:** Em `src/config/settings.py`, adicionar novas variáveis:
+        * `LLM_PROVIDER: Literal["ollama", "openai", "gemini"] = "ollama"`
+        * `EMBEDDING_PROVIDER: Literal["ollama", "openai"] = "ollama"`
+        * `OPENAI_API_KEY: str = ""`
+        * `GOOGLE_API_KEY: str = ""`
+    * - **Refatoração:**
+        * Criar `src/generation/providers/base.py` com a classe abstrata `LLMProvider`.
+        * Criar `src/generation/providers/ollama.py` com a classe `OllamaProvider` que encapsula a lógica existente.
+        * Modificar `src/generation/generator.py` para usar o factory que seleciona e instancia o provedor com base em `settings.LLM_PROVIDER`.
+    * - **Testes:** Criar `tests/test_generation_providers.py` para testar a lógica do factory e garantir que ele falhe corretamente com configurações inválidas.
+* **Frontend:**
+    * - N/A.
+* **Banco de Dados:**
+    * - Nenhuma alteração necessária.
+* **Questões em Aberto / Riscos:**
+    * - **Gerenciamento de Segredos:** As chaves de API (OpenAI, Google) não devem ser commitadas. O uso de variáveis de ambiente (lidas pelo Pydantic) é obrigatório. Isso deve ser documentado.
+    * - **Interface Comum:** Garantir que a interface `LLMProvider` seja genérica o suficiente para acomodar as diferentes respostas e parâmetros dos SDKs da OpenAI e do Google.
+
+---
+### História 2: Implementação do Provedor OpenAI para Geração e Embeddings
+* **Tipo:** Funcional
+
+#### Parte 1: Especificação Funcional (Visão do Product Owner)
+* **História de Usuário:** Como um Desenvolvedor, eu quero integrar os modelos da OpenAI como uma opção para geração de respostas e criação de embeddings, para que eu possa utilizar seus modelos de ponta e avaliar a relação custo-benefício em comparação com a solução local.
+* **Requisitos / Detalhes:**
+    * O sistema deve ser capaz de usar um modelo da OpenAI (e.g., `gpt-4o`) para o serviço de geração quando configurado.
+    * O sistema deve ser capaz de usar um modelo de embedding da OpenAI (e.g., `text-embedding-3-small`) para os processos de ingestão e consulta.
+    * A chave da API da OpenAI deve ser lida a partir das configurações (que por sua vez a lê de uma variável de ambiente).
+    * A funcionalidade deve ser testável de ponta a ponta.
+* **Critérios de Aceite (ACs):**
+    * **AC 1:** Dado que `LLM_PROVIDER="openai"` e uma `OPENAI_API_KEY` válida está configurada, quando eu envio uma `POST` para `/query`, então a resposta é gerada com sucesso pela API da OpenAI.
+    * **AC 2:** Dado que `EMBEDDING_PROVIDER="openai"` e uma `OPENAI_API_KEY` válida está configurada, quando eu ingiro um novo documento via `POST` para `/ingest`, então os embeddings dos chunks são gerados pela OpenAI e salvos corretamente no Neo4j.
+    * **AC 3:** Dado que a `OPENAI_API_KEY` é inválida ou não foi fornecida, quando o sistema tenta usar um serviço da OpenAI, então ele retorna um erro claro e informativo (e.g., `500 Internal Server Error` com a causa raiz).
+* **Definição de 'Pronto' (DoD Checklist):**
+    * [ ] Código revisado por um par (PR aprovado).
+    * [ ] Testes de integração que validam o fluxo com OpenAI (geração e embedding) foram criados e estão passando (podem necessitar de mocks para a API externa).
+    * [ ] A dependência do cliente Python da OpenAI foi adicionada ao `requirements.txt`.
+    * [ ] A documentação de configuração (`configuration.md` ou `README.md`) foi atualizada para explicar como usar o provedor OpenAI.
+
+#### Parte 2: Especificação Técnica (Visão do Engenheiro)
+* **Abordagem Técnica Proposta:**
+    * Criar novas classes `OpenAIProvider` (para LLM) e `OpenAIEmbeddingProvider` que implementam as respectivas interfaces definidas na História 1. Essas classes irão encapsular as chamadas ao SDK da OpenAI.
+* **Backend:**
+    * - **Dependências:** Adicionar `openai` ao `requirements.txt`.
+    * - **Implementação do LLM:**
+        * Criar `src/generation/providers/openai.py`.
+        * Implementar a classe `OpenAIProvider` herdando de `LLMProvider`.
+        * O método `generate` irá instanciar o cliente da OpenAI, fazer a chamada para `client.chat.completions.create()` e formatar a resposta.
+    * - **Implementação do Embedding:**
+        * (Assumindo uma refatoração similar para embeddings) Criar `src/retrieval/embedding_providers/openai.py`.
+        * Implementar a classe `OpenAIEmbeddingProvider` que chama `client.embeddings.create()`.
+    * - **Atualização do Factory:** Adicionar a lógica no factory de serviços para instancionar as classes da OpenAI quando `settings.LLM_PROVIDER` ou `settings.EMBEDDING_PROVIDER` for `"openai"`.
+* **Frontend:**
+    * - N/A.
+* **Banco de Dados:**
+    * - Nenhuma alteração de schema.
+* **Questões em Aberto / Riscos:**
+    * - **Custo:** Chamadas à API da OpenAI incorrem em custos. Os testes de integração devem usar mocks para evitar chamadas reais no pipeline de CI/CD.
+    * - **Rate Limiting:** As APIs externas têm limites de taxa. Adicione controle de retry e deixe configuravel para evitar problemas.

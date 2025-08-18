@@ -7,6 +7,7 @@ Version 3.4 - Fixed Ollama API endpoints and error handling
 """
 
 import asyncio
+import inspect
 import json
 import uuid
 from typing import List, Dict, Any
@@ -110,6 +111,15 @@ class IngestionService:
     def _create_chunks(self, content: str) -> List[str]:
         return self.text_splitter.split_text(content)
 
+    async def _safe_raise_for_status(self, response: Any) -> None:
+        """Call response.raise_for_status() handling AsyncMock in tests."""
+        try:
+            result = response.raise_for_status()
+            if asyncio.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+        except Exception:
+            raise
+
     async def _generate_embeddings(self, chunks: List[str], provider: str = "ollama") -> List[List[float]]:
         """Generate embeddings using the configured provider (ollama or openai)"""
         logger.info(f"Generating embeddings for {len(chunks)} chunks via {provider}...")
@@ -133,7 +143,7 @@ class IngestionService:
                             "Authorization": f"Bearer {api_key}",
                         },
                     )
-                    response.raise_for_status()
+                    await self._safe_raise_for_status(response)
                     result = response.json()
                     if asyncio.iscoroutine(result):
                         result = await result
@@ -147,7 +157,7 @@ class IngestionService:
                             "input": chunks
                         },
                     )
-                    response.raise_for_status()
+                    await self._safe_raise_for_status(response)
                     result = response.json()
                     if asyncio.iscoroutine(result):
                         result = await result
@@ -260,7 +270,7 @@ class IngestionService:
                         "format": "json"
                     },
                 )
-                response.raise_for_status()
+                await self._safe_raise_for_status(response)
                 resp_json = response.json()
                 if asyncio.iscoroutine(resp_json):
                     resp_json = await resp_json
@@ -324,7 +334,7 @@ class IngestionService:
                         "format": "json"
                     },
                 )
-                response.raise_for_status()
+                await self._safe_raise_for_status(response)
                 resp_json = response.json()
                 if asyncio.iscoroutine(resp_json):
                     resp_json = await resp_json
