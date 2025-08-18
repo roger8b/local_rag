@@ -4,6 +4,7 @@ from src.generation.generator import create_llm_provider, ResponseGenerator
 from src.generation.providers.base import LLMProvider
 from src.generation.providers.ollama import OllamaProvider
 from src.generation.providers.openai import OpenAIProvider
+from src.generation.providers.gemini import GeminiProvider
 
 
 class TestLLMProviderFactory:
@@ -26,13 +27,15 @@ class TestLLMProviderFactory:
             provider = create_llm_provider()
             assert isinstance(provider, OpenAIProvider)
     
-    def test_create_gemini_provider_not_implemented(self):
-        """Test that factory raises NotImplementedError for Gemini"""
-        with patch('src.generation.generator.settings') as mock_settings:
+    def test_create_gemini_provider(self):
+        """Test that factory creates GeminiProvider when configured"""
+        with patch('src.generation.generator.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.settings') as mock_gemini_settings:
             mock_settings.llm_provider = "gemini"
-            with pytest.raises(NotImplementedError) as exc_info:
-                create_llm_provider()
-            assert "não suportado ainda" in str(exc_info.value)
+            mock_gemini_settings.google_api_key = "test-key"
+            mock_gemini_settings.google_model = "gemini-2.0-flash-exp"
+            provider = create_llm_provider()
+            assert isinstance(provider, GeminiProvider)
     
     def test_create_invalid_provider(self):
         """Test that factory raises ValueError for invalid provider"""
@@ -239,3 +242,167 @@ class TestOpenAIProvider:
                 await provider.generate_response("Test question", [])
             
             assert "Erro de rate limit OpenAI" in str(exc_info.value)
+
+
+class TestGeminiProvider:
+    """Tests for the GeminiProvider class"""
+    
+    def test_gemini_provider_initialization_success(self):
+        """Test that GeminiProvider initializes with correct settings"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.genai') as mock_genai:
+            
+            mock_settings.google_api_key = "test-key"
+            mock_settings.google_model = "gemini-2.0-flash-exp"
+            
+            # Mock GenerativeModel
+            mock_model = MagicMock()
+            mock_genai.GenerativeModel.return_value = mock_model
+            
+            provider = GeminiProvider()
+            assert provider.model == mock_model
+            mock_genai.configure.assert_called_once_with(api_key="test-key")
+            mock_genai.GenerativeModel.assert_called_once_with("gemini-2.0-flash-exp")
+    
+    def test_gemini_provider_initialization_no_api_key(self):
+        """Test that GeminiProvider fails without API key"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings:
+            mock_settings.google_api_key = None
+            
+            with pytest.raises(ValueError) as exc_info:
+                GeminiProvider()
+            
+            assert "GOOGLE_API_KEY é obrigatória" in str(exc_info.value)
+    
+    async def test_gemini_provider_generate_response_success(self):
+        """Test successful response generation with GeminiProvider"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.genai') as mock_genai:
+            
+            mock_settings.google_api_key = "test-key"
+            mock_settings.google_model = "gemini-2.0-flash-exp"
+            
+            # Mock model and response
+            mock_model = MagicMock()
+            mock_genai.GenerativeModel.return_value = mock_model
+            
+            mock_response = MagicMock()
+            mock_response.text = "Test response"
+            mock_model.generate_content.return_value = mock_response
+            
+            provider = GeminiProvider()
+            result = await provider.generate_response("Test question", [])
+            
+            assert result == "Test response"
+            mock_model.generate_content.assert_called_once()
+    
+    async def test_gemini_provider_empty_response(self):
+        """Test Gemini empty response handling"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.genai') as mock_genai:
+            
+            mock_settings.google_api_key = "test-key"
+            mock_settings.google_model = "gemini-2.0-flash-exp"
+            
+            # Mock model with empty response
+            mock_model = MagicMock()
+            mock_genai.GenerativeModel.return_value = mock_model
+            
+            mock_response = MagicMock()
+            mock_response.text = None
+            mock_model.generate_content.return_value = mock_response
+            
+            provider = GeminiProvider()
+            
+            with pytest.raises(Exception) as exc_info:
+                await provider.generate_response("Test question", [])
+            
+            assert "Gemini retornou resposta vazia" in str(exc_info.value)
+    
+    async def test_gemini_provider_authentication_error(self):
+        """Test Gemini authentication error handling"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.genai') as mock_genai:
+            
+            mock_settings.google_api_key = "invalid-key"
+            mock_settings.google_model = "gemini-2.0-flash-exp"
+            
+            # Mock model
+            mock_model = MagicMock()
+            mock_genai.GenerativeModel.return_value = mock_model
+            
+            # Mock authentication error
+            mock_model.generate_content.side_effect = Exception("Authentication failed")
+            
+            provider = GeminiProvider()
+            
+            with pytest.raises(Exception) as exc_info:
+                await provider.generate_response("Test question", [])
+            
+            assert "Erro de autenticação Gemini" in str(exc_info.value)
+    
+    async def test_gemini_provider_rate_limit_error(self):
+        """Test Gemini rate limit error handling"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.genai') as mock_genai:
+            
+            mock_settings.google_api_key = "test-key"
+            mock_settings.google_model = "gemini-2.0-flash-exp"
+            
+            # Mock model
+            mock_model = MagicMock()
+            mock_genai.GenerativeModel.return_value = mock_model
+            
+            # Mock rate limit error
+            mock_model.generate_content.side_effect = Exception("Rate limit exceeded")
+            
+            provider = GeminiProvider()
+            
+            with pytest.raises(Exception) as exc_info:
+                await provider.generate_response("Test question", [])
+            
+            assert "Erro de rate limit Gemini" in str(exc_info.value)
+    
+    async def test_gemini_provider_safety_error(self):
+        """Test Gemini safety/content blocked error handling"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.genai') as mock_genai:
+            
+            mock_settings.google_api_key = "test-key"
+            mock_settings.google_model = "gemini-2.0-flash-exp"
+            
+            # Mock model
+            mock_model = MagicMock()
+            mock_genai.GenerativeModel.return_value = mock_model
+            
+            # Mock safety error
+            mock_model.generate_content.side_effect = Exception("Content blocked by safety filters")
+            
+            provider = GeminiProvider()
+            
+            with pytest.raises(Exception) as exc_info:
+                await provider.generate_response("Test question", [])
+            
+            assert "Erro de segurança Gemini" in str(exc_info.value)
+    
+    async def test_gemini_provider_generic_error(self):
+        """Test Gemini generic error handling"""
+        with patch('src.generation.providers.gemini.settings') as mock_settings, \
+             patch('src.generation.providers.gemini.genai') as mock_genai:
+            
+            mock_settings.google_api_key = "test-key"
+            mock_settings.google_model = "gemini-2.0-flash-exp"
+            
+            # Mock model
+            mock_model = MagicMock()
+            mock_genai.GenerativeModel.return_value = mock_model
+            
+            # Mock generic error
+            mock_model.generate_content.side_effect = Exception("Network error")
+            
+            provider = GeminiProvider()
+            
+            with pytest.raises(Exception) as exc_info:
+                await provider.generate_response("Test question", [])
+            
+            assert "Erro ao gerar resposta com Gemini" in str(exc_info.value)

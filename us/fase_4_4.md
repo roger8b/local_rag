@@ -84,3 +84,44 @@
 * **Questões em Aberto / Riscos:**
     * - **Custo:** Chamadas à API da OpenAI incorrem em custos. Os testes de integração devem usar mocks para evitar chamadas reais no pipeline de CI/CD.
     * - **Rate Limiting:** As APIs externas têm limites de taxa. Adicione controle de retry e deixe configuravel para evitar problemas.
+
+---
+### História 3: Implementação do Provedor Google Gemini para Geração de Respostas
+* **Tipo:** Funcional
+
+#### Parte 1: Especificação Funcional (Visão do Product Owner)
+* **História de Usuário:** Como um Desenvolvedor, eu quero integrar os modelos do Google Gemini como uma opção para geração de respostas, para que eu possa utilizar seus modelos avançados e comparar performance/custo com outras soluções disponíveis.
+* **Requisitos / Detalhes:**
+    * O sistema deve ser capaz de usar um modelo do Google Gemini (e.g., `gemini-2.0-flash-exp`) para o serviço de geração quando configurado.
+    * A chave da API do Google deve ser lida a partir das configurações (que por sua vez a lê de uma variável de ambiente).
+    * A funcionalidade deve ser testável de ponta a ponta.
+    * O provider deve manter compatibilidade com a interface existente.
+* **Critérios de Aceite (ACs):**
+    * **AC 1:** Dado que `LLM_PROVIDER="gemini"` e uma `GOOGLE_API_KEY` válida está configurada, quando eu envio uma `POST` para `/query`, então a resposta é gerada com sucesso pela API do Google Gemini.
+    * **AC 2:** Dado que a `GOOGLE_API_KEY` é inválida ou não foi fornecida, quando o sistema tenta usar o serviço do Gemini, então ele retorna um erro claro e informativo (e.g., `500 Internal Server Error` com a causa raiz).
+    * **AC 3:** Dado que o factory foi atualizado, quando o sistema é configurado para usar Gemini, então a resposta é gerada sem modificar outros componentes do sistema.
+* **Definição de 'Pronto' (DoD Checklist):**
+    * [ ] Código revisado por um par (PR aprovado).
+    * [ ] Testes de integração que validam o fluxo com Google Gemini foram criados e estão passando (podem necessitar de mocks para a API externa).
+    * [ ] A dependência do cliente Python do Google Generative AI foi adicionada ao `requirements.txt`.
+    * [ ] A documentação de configuração foi atualizada para explicar como usar o provedor Gemini.
+
+#### Parte 2: Especificação Técnica (Visão do Engenheiro)
+* **Abordagem Técnica Proposta:**
+    * Criar nova classe `GeminiProvider` que implementa a interface `LLMProvider` definida na arquitetura. Esta classe irá encapsular as chamadas ao SDK do Google Generative AI.
+* **Backend:**
+    * - **Dependências:** Adicionar `google-generativeai` ao `requirements.txt`.
+    * - **Implementação do LLM:**
+        * Criar `src/generation/providers/gemini.py`.
+        * Implementar a classe `GeminiProvider` herdando de `LLMProvider`.
+        * O método `generate_response` irá instanciar o cliente do Gemini, fazer a chamada para `model.generate_content()` e formatar a resposta.
+        * Usar o modelo `gemini-2.0-flash-exp` conforme configurado.
+    * - **Atualização do Factory:** Atualizar a lógica no factory de serviços para instanciar a classe `GeminiProvider` quando `settings.LLM_PROVIDER` for `"gemini"`.
+* **Frontend:**
+    * - N/A.
+* **Banco de Dados:**
+    * - Nenhuma alteração de schema.
+* **Questões em Aberto / Riscos:**
+    * - **Custo:** Chamadas à API do Google Gemini incorrem em custos. Os testes de integração devem usar mocks para evitar chamadas reais no pipeline de CI/CD.
+    * - **Rate Limiting:** As APIs externas têm limites de taxa. Adicionar controle de retry e tratamento de erros configurável.
+    * - **Modelos Disponíveis:** Verificar disponibilidade do modelo `gemini-2.0-flash-exp` e ter fallback se necessário.

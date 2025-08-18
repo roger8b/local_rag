@@ -4,6 +4,7 @@ from src.models.api_models import DocumentSource
 from src.generation.providers.base import LLMProvider
 from src.generation.providers.ollama import OllamaProvider
 from src.generation.providers.openai import OpenAIProvider
+from src.generation.providers.gemini import GeminiProvider
 
 
 def create_llm_provider() -> LLMProvider:
@@ -15,7 +16,7 @@ def create_llm_provider() -> LLMProvider:
     elif provider == "openai":
         return OpenAIProvider()
     elif provider == "gemini":
-        raise NotImplementedError(f"Provedor de LLM '{provider}' não suportado ainda")
+        return GeminiProvider()
     else:
         raise ValueError(f"Provedor de LLM '{provider}' não suportado")
 
