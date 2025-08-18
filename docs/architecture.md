@@ -28,6 +28,41 @@ Componentes
 - Recuperação: busca vetorial sobre `:Chunk` (detalhes no retriever).
 - Geração: LLM local (Ollama `/api/generate`) com contexto dos chunks recuperados.
 
+Diagramas (Mermaid)
+
+Componentes e dependências
+```mermaid
+graph LR
+  A[Upload .txt] --> B[API Ingest]
+  B --> C[IngestionService]
+  C --> D[Chunking]
+  C --> E[Embeddings]
+  E -->|Ollama/OpenAI| F[(Vetores)]
+  C --> G[(Neo4j)]
+  G <---> H[VectorRetriever]
+  H --> I[ResponseGenerator]
+  I --> J[API Query]
+```
+
+Fluxo de ingestão
+```mermaid
+sequenceDiagram
+  participant U as Cliente
+  participant API as API /ingest
+  participant S as IngestionService
+  participant O as Ollama/OpenAI
+  participant N as Neo4j
+  U->>API: POST /api/v1/ingest (file)
+  API->>S: ingest_from_file_upload
+  S->>S: split_text(content)
+  S->>O: gerar embeddings (batch)
+  O-->>S: embeddings por chunk
+  S->>N: UNWIND chunks + NEXT
+  S->>N: ensure vector index
+  S-->>API: {document_id, chunks_created}
+  API-->>U: 201 Created
+```
+
 Fluxo de Dados
 1) Upload/Input → parsing e chunking.
 2) Embedding → geração de vetores por chunk (batch quando suportado).

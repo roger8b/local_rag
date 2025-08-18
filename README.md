@@ -1,5 +1,8 @@
 # Local RAG com Python, LangChain e Neo4j
 
+![build](https://img.shields.io/badge/build-passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-68%20passed-brightgreen)
+
 Este projeto implementa um sistema de Retrieval-Augmented Generation (RAG) local usando Python, LangChain e Neo4j.
 
 Documentação completa
