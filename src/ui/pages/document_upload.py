@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 from src.config.settings import settings
+from src.ui.components.provider_selector import render_embedding_provider_selector, get_embedding_provider_config
 
 
 def render_page(rag_client=None, st=None):
@@ -22,63 +23,9 @@ def render_page(rag_client=None, st=None):
     # Configuration section
     st.subheader("⚙️ Configurações")
     
-    # --- Configuração do Provedor de Embedding ---
-    
-    # Dicionário de provedores para escalabilidade
-    EMBEDDING_PROVIDERS = {
-        "ollama": {
-            "label": "🏠 Local (Ollama)",
-            "description": "Processamento local usando Ollama. Mais lento, mas totalmente privado.",
-            "check": lambda: True, # Sempre disponível
-            "time_multiplier": 2.0
-        },
-        "openai": {
-            "label": "☁️ OpenAI",
-            "description": "Processamento remoto via OpenAI. Mais rápido, requer chave de API.",
-            "check": lambda: settings.openai_api_key,
-            "time_multiplier": 1.0
-        },
-        # Adicione novos provedores aqui no futuro
-        # "gemini": {
-        #     "label": "✨ Google Gemini",
-        #     "description": "Processamento remoto via Google Gemini.",
-        #     "check": lambda: settings.gemini_api_key,
-        #     "time_multiplier": 1.0
-        # }
-    }
-
-    # --- Layout da UI ---
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Seleção do provedor de forma dinâmica
-        provider_key = st.radio(
-            "Provedor de Embeddings:",
-            options=list(EMBEDDING_PROVIDERS.keys()),
-            index=0,
-            help="Modelo usado para processar documentos. Consultas sempre usam modelo local."
-        )
-
-    with col2:
-        selected_provider = EMBEDDING_PROVIDERS[provider_key]
-        
-        # Verifica a configuração do provedor selecionado
-        if selected_provider["check"]():
-            st.info(f"✅ **{selected_provider['label']}** selecionado.")
-            st.info(selected_provider['description'])
-        else:
-            st.error(f"❌ **{selected_provider['label']}** requer configuração.")
-            if provider_key == "openai":
-                st.markdown("""
-                **Como configurar:**
-                ```bash
-                export OPENAI_API_KEY="sk-your-key-here"
-                # Ou adicione em .env
-                ```
-                """)
-        
-        st.caption("💡 Consultas sempre usam modelo local independente desta configuração.")
+    # Use the global embedding provider selector
+    provider_key = render_embedding_provider_selector(st, "upload")
+    provider_config = get_embedding_provider_config(provider_key)
 
     st.markdown("---")
 
@@ -105,7 +52,7 @@ def render_page(rag_client=None, st=None):
         
         # Calcula o tempo estimado de forma dinâmica
         base_time = 60 + (file_size_mb * 30)
-        time_multiplier = EMBEDDING_PROVIDERS[provider_key]["time_multiplier"]
+        time_multiplier = provider_config["time_multiplier"]
         estimated_time = max(60, min(1200, base_time * time_multiplier))
         
         # File info display
@@ -118,7 +65,7 @@ def render_page(rag_client=None, st=None):
             st.metric(
                 label="⏱️ Tempo Estimado", 
                 value=f"~{estimated_time:.0f}s",
-                help=f"Estimativa para o provedor {EMBEDDING_PROVIDERS[provider_key]['label']}"
+                help=f"Estimativa para o provedor {provider_config['label']}"
             )
         with col3:
             if file_size_mb <= 10.0:
@@ -129,7 +76,7 @@ def render_page(rag_client=None, st=None):
         st.markdown("")
 
         # Botão de envio e validações
-        is_provider_configured = EMBEDDING_PROVIDERS[provider_key]["check"]()
+        is_provider_configured = provider_config["is_configured"]
         is_file_too_large = file_size_mb > 10.0
         
         send_button_disabled = is_file_too_large or not is_provider_configured
@@ -137,7 +84,7 @@ def render_page(rag_client=None, st=None):
         if is_file_too_large:
             st.error(f"🚫 **Arquivo muito grande**: {file_size_mb:.2f} MB (limite de 10 MB).")
         elif not is_provider_configured:
-            st.error(f"🔧 **Provedor não configurado**: Verifique as configurações para {EMBEDDING_PROVIDERS[provider_key]['label']}.")
+            st.error(f"🔧 **Provedor não configurado**: Verifique as configurações para {provider_config['label']}.")
         elif file_size_mb > 2.0:
             st.warning(f"⚠️ **Arquivo grande detectado**: O processamento pode levar alguns minutos.")
         else:
@@ -176,23 +123,30 @@ def render_page(rag_client=None, st=None):
     ### ⚙️ Configurações de Embedding
     - **🏠 Local (Ollama)**: Mais lento, mas totalmente privado
     - **☁️ OpenAI**: Mais rápido, requer API key configurada
+    - **✨ Google Gemini**: (Futuramente disponível para embeddings)
     
-    ### 🔐 Como Configurar OpenAI API Key
+    ### 🔐 Como Configurar API Keys
+    
+    **OpenAI:**
     ```bash
     # Método 1: Variável de ambiente (recomendado)
     export OPENAI_API_KEY="sk-your-openai-key-here"
     
     # Método 2: Arquivo .env na raiz do projeto
-    echo "OPENAI_API_KEY=sk-your-openai-key-here" > .env
-    
-    # Método 3: Definir antes de executar
-    OPENAI_API_KEY="sk-your-key" streamlit run streamlit_app.py
+    echo "OPENAI_API_KEY=sk-your-openai-key-here" >> .env
     ```
-    
     📝 **Obter API Key**: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
     
+    **Google Gemini:**
+    ```bash
+    # Configure no arquivo .env
+    echo "GOOGLE_API_KEY=your-google-api-key-here" >> .env
+    ```
+    📝 **Obter API Key**: [makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey)
+    
     ### 💬 Consultas
-    - Independente do tipo de embedding, **consultas sempre usam modelo local**
+    - Independente do tipo de embedding, **consultas usam o LLM selecionado globalmente**
+    - Você pode escolher entre Ollama, OpenAI ou Gemini para consultas
     - Após upload, vá para a página "Consulta" para fazer perguntas sobre o documento
     
     ### 🔧 Dicas de Performance
@@ -203,7 +157,7 @@ def render_page(rag_client=None, st=None):
     
     # Footer with current configuration
     st.markdown("---")
-    st.caption(f"🔧 Configuração atual: Embeddings {EMBEDDING_PROVIDERS[provider_key]['label']} | Consultas sempre locais")
+    st.caption(f"🔧 Configuração atual: Embeddings {provider_config['label']} | Consultas usam LLM selecionado globalmente")
 
 
 if __name__ == "__main__":

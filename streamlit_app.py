@@ -16,6 +16,7 @@ Configuração:
 import streamlit as st
 from src.ui.pages.document_upload import render_page as upload_page
 from src.ui.pages.query_interface import render_page as query_page
+from src.ui.components.provider_selector import render_llm_provider_selector
 
 # Configuração da página
 st.set_page_config(
@@ -36,6 +37,13 @@ page = st.sidebar.selectbox(
 )
 
 st.sidebar.markdown("---")
+
+# Global LLM Provider Selector (only for query page)
+selected_llm_provider = None
+if page == "💬 Consulta":
+    selected_llm_provider = render_llm_provider_selector(st, "global")
+    st.sidebar.markdown("---")
+
 st.sidebar.markdown("""
 ### ℹ️ Sobre o Sistema
 - **Consulta**: Faça perguntas sobre os documentos indexados
@@ -59,7 +67,7 @@ except:
 if page == "📤 Upload de Documentos":
     upload_page()
 elif page == "💬 Consulta":
-    query_page()
+    query_page(selected_provider=selected_llm_provider)
 
 # Footer
 st.sidebar.markdown("---")

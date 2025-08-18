@@ -23,12 +23,13 @@ def get_provider_status(provider: str) -> tuple[str, str]:
         return "❓", "Desconhecido"
 
 
-def render_page(rag_client=None, st=None):
+def render_page(rag_client=None, st=None, selected_provider=None):
     """Render the chat interface page.
 
     Parameters:
         rag_client: an object with a .query(question, provider) -> {ok, data|error}
         st: streamlit module (or compatible), defaults to imported streamlit
+        selected_provider: LLM provider selected from global selector
     """
     if st is None:
         import streamlit as st  # type: ignore
@@ -36,44 +37,16 @@ def render_page(rag_client=None, st=None):
         from src.api.client import RAGClient
         rag_client = RAGClient()
 
-    # Title and Provider Selection
+    # Title
     st.title("🤖 Local RAG - Interface de Consulta")
     
-    # Provider selection in sidebar
-    with st.sidebar:
-        st.markdown("### 🔧 Configuração de Provider")
-        
-        # Provider options with status
-        provider_options = []
-        providers_info = {
-            "auto": ("Auto (padrão)", "🔄", "Usa configuração padrão do sistema"),
-            "ollama": ("Ollama", *get_provider_status("ollama")),
-            "openai": ("OpenAI", *get_provider_status("openai")),
-            "gemini": ("Google Gemini", *get_provider_status("gemini"))
-        }
-        
-        for key, (name, status, desc) in providers_info.items():
-            provider_options.append(f"{status} {name}")
-        
-        selected_display = st.selectbox(
-            "Escolha o Provider LLM:",
-            provider_options,
-            index=0,
-            help="Selecione qual modelo usar para gerar as respostas"
-        )
-        
-        # Extract provider key from selection
-        selected_provider = None
-        for key, (name, status, desc) in providers_info.items():
-            if f"{status} {name}" == selected_display:
-                if key != "auto":
-                    selected_provider = key
-                st.info(f"ℹ️ {desc}")
-                break
-        
-        # Show current default provider
+    # Show current provider info
+    if selected_provider:
+        provider_status, provider_desc = get_provider_status(selected_provider)
+        st.info(f"{provider_status} Usando **{selected_provider.upper()}** - {provider_desc}")
+    else:
         default_provider = os.getenv("LLM_PROVIDER", "ollama")
-        st.markdown(f"**Provider padrão:** {default_provider}")
+        st.info(f"🔄 Usando provider **padrão** ({default_provider.upper()})")
 
     # Initialize conversation state
     if "messages" not in st.session_state:
@@ -96,7 +69,8 @@ def render_page(rag_client=None, st=None):
             st.markdown(user_input)  # type: ignore[attr-defined]
 
         # Call backend with loading indicator
-        with st.spinner(f"Processando com {selected_display}..."):
+        provider_display = selected_provider.upper() if selected_provider else "provider padrão"
+        with st.spinner(f"Processando com {provider_display}..."):
             result = rag_client.query(user_input, provider=selected_provider)
 
         if result.get("ok"):
