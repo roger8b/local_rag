@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
     neo4j_password: str = "password"
+    # Controla se devemos chamar verify_connectivity() na inicialização do driver
+    neo4j_verify_connectivity: bool = True
     
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
@@ -19,7 +21,7 @@ class Settings(BaseSettings):
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
     # Default embedding dimensions for OpenAI text-embedding-3 models
-    openai_embedding_dimensions: int = 256
+    openai_embedding_dimensions: int = 768
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379"

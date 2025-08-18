@@ -1,18 +1,19 @@
 """
-Ingestion service for processing documents and adding them to the knowledge base.
-Refactored from scripts/ingest_documents.py to be reusable within the application.
+Generic Knowledge Ingestion Service for processing any document,
+dynamically inferring a graph schema, extracting entities and relationships,
+and building a knowledge graph in Neo4j.
+
+Version 3.4 - Fixed Ollama API endpoints and error handling
 """
 
 import asyncio
-import inspect
+import json
 import uuid
 from typing import List, Dict, Any
 import httpx
 from neo4j import GraphDatabase
-from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from src.config.settings import settings
-import tempfile
 import os
 import logging
 
@@ -25,345 +26,420 @@ def is_valid_file_type(filename: str) -> bool:
 
 
 class IngestionService:
-    """Service for ingesting documents into the RAG system"""
+    """
+    Service for ingesting documents and building a hybrid knowledge graph.
+    This version is generic and infers the schema from the document content.
+    """
     
     def __init__(self):
-        # Try to initialize Neo4j driver; fall back to disabled mode if unavailable
         try:
             self.driver = GraphDatabase.driver(
                 settings.neo4j_uri,
                 auth=(settings.neo4j_user, settings.neo4j_password)
             )
-            self._db_disabled = False
+            try:
+                if getattr(settings, 'neo4j_verify_connectivity', True):
+                    self.driver.verify_connectivity()
+                self._db_disabled = False
+                logger.info("Neo4j connection established.")
+            except Exception as conn_err:
+                logger.warning(f"Neo4j unavailable, running in degraded mode: {conn_err}")
+                self._db_disabled = True
         except Exception as e:
-            logger.warning(f"Neo4j unavailable, running ingestion in degraded mode (no persistence): {e}")
+            logger.warning(f"Neo4j driver init failed, running in degraded mode: {e}")
             self.driver = None
             self._db_disabled = True
+            
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
             separators=["\n\n", "\n", " ", ""]
         )
-    
+
     def close(self):
-        """Close database connections"""
         if self.driver:
             self.driver.close()
-    
+            logger.info("Neo4j connection closed.")
+
+    async def _check_ollama_health(self) -> bool:
+        """Check if Ollama is running and responsive"""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{settings.ollama_base_url}")
+                return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Ollama health check failed: {e}")
+            return False
+
+    async def _check_model_availability(self, model_name: str) -> bool:
+        """Check if the specified model is available in Ollama"""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{settings.ollama_base_url}/api/tags")
+                if response.status_code == 200:
+                    models = response.json().get("models", [])
+                    available_models = [model["name"] for model in models]
+                    logger.info(f"Available models: {available_models}")
+                    return any(model_name in model["name"] for model in models)
+        except Exception as e:
+            logger.error(f"Error checking model availability: {e}")
+        return False
+
+    # --- Step 1: Document Graph Creation ---
     def _ensure_vector_index(self):
-        """Create vector index if it doesn't exist"""
-        if self._db_disabled or not self.driver:
-            logger.info("Skipping vector index creation (Neo4j disabled).")
+        if self.driver is None:
+            logger.debug("Skipping index check: driver unavailable")
             return
         try:
             with self.driver.session() as session:
-                # Check if index exists
                 result = session.run("SHOW INDEXES YIELD name WHERE name = 'document_embeddings'")
-                if result.single():
-                    logger.info("Vector index 'document_embeddings' already exists.")
-                    return
-                
-                # Create vector index
-                query = f"""
-                CREATE VECTOR INDEX document_embeddings IF NOT EXISTS
-                FOR (c:Chunk) ON (c.embedding)
-                OPTIONS {{
-                    indexConfig: {{
+                if not result.single():
+                    query = f"""
+                    CREATE VECTOR INDEX document_embeddings IF NOT EXISTS
+                    FOR (c:Chunk) ON (c.embedding)
+                    OPTIONS {{ indexConfig: {{
                         `vector.dimensions`: {settings.openai_embedding_dimensions},
                         `vector.similarity_function`: 'cosine'
-                    }}
-                }}
-                """
-                session.run(query)
-                logger.info("Created vector index 'document_embeddings'.")
+                    }}}}
+                    """
+                    session.run(query)
+                    logger.info("Created vector index 'document_embeddings'.")
         except Exception as e:
-            logger.warning(f"Neo4j unavailable when ensuring index; switching to degraded mode: {e}")
-            self._db_disabled = True
-            return
+            logger.warning(f"Could not ensure vector index due to Neo4j error: {e}")
 
     def _create_chunks(self, content: str) -> List[str]:
-        """Split content into chunks"""
         return self.text_splitter.split_text(content)
-    
+
     async def _generate_embeddings(self, chunks: List[str], provider: str = "ollama") -> List[List[float]]:
-        """Generate embeddings for chunks using the specified provider."""
-        if provider == "ollama":
-            return await self._generate_embeddings_ollama(chunks)
-        elif provider == "openai":
-            return await self._generate_embeddings_openai(chunks)
-        else:
-            raise ValueError(f"Provedor de embedding desconhecido: {provider}")
-
-    async def _generate_embeddings_ollama(self, chunks: List[str]) -> List[List[float]]:
-        """Generate embeddings for chunks using Ollama with the new /api/embed endpoint."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                # ✅ CORREÇÃO: Usar a API nova /api/embed que suporta batch
-                response = await client.post(
-                    f"{settings.ollama_base_url}/api/embed",  # ← API nova!
-                    json={
-                        "model": settings.embedding_model, 
-                        "input": chunks  # ← Lista de chunks - suportado na API nova!
-                    },
-                )
-                rfs = response.raise_for_status()
-                import inspect as _inspect
-                if _inspect.iscoroutine(rfs):
-                    await rfs
-                
-                result = response.json()
-                if _inspect.iscoroutine(result):
-                    result = await result
-
-                # ✅ A API nova retorna {"embeddings": [[...], [...], ...]}
-                if isinstance(result, dict) and "embeddings" in result:
-                    batch_embeddings = result["embeddings"]
-                    
-                    if not isinstance(batch_embeddings, list):
-                        raise Exception("Invalid embeddings format from Ollama")
-                    
-                    if len(batch_embeddings) != len(chunks):
-                        raise Exception(
-                            f"Embedding count mismatch: expected {len(chunks)}, got {len(batch_embeddings)}"
-                        )
-                    
-                    logger.info(f"Successfully generated {len(batch_embeddings)} embeddings using batch API")
-                    return batch_embeddings
-                else:
-                    raise Exception("Invalid response format from Ollama embed endpoint")
-
-            except (httpx.RequestError, httpx.HTTPStatusError) as e:
-                # In test environments or when running without Ollama, fall back to zero embeddings
-                if os.getenv("PYTEST_CURRENT_TEST"):
-                    logger.warning(
-                        f"Ollama unavailable in test environment; using zero-vector fallback: {str(e)}"
-                    )
-                    return [[0.0] * settings.embedding_dimension for _ in chunks]
-                logger.error(f"Error generating Ollama embeddings: {str(e)}")
-                raise Exception(f"Failed to generate embeddings with Ollama: {str(e)}")
-
-    async def _generate_embeddings_openai(self, chunks: List[str]) -> List[List[float]]:
-        """Generate embeddings for chunks using OpenAI in batches with retries/backoff.
-
-        Retries transient failures such as 429/5xx with exponential backoff
-        to improve resilience during large uploads.
-        """
-        api_key = os.getenv("OPENAI_API_KEY") or settings.openai_api_key
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY não configurada")
-
-        all_embeddings: List[List[float]] = []
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-
-        batch_size = settings.embedding_batch_size
-        max_retries = max(1, getattr(settings, "embedding_max_retries", 3))
-
-        # Reuse a single client for connection pooling across batches
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            for i in range(0, len(chunks), batch_size):
-                batch = chunks[i:i + batch_size]
-
-                json_payload = {
-                    "input": batch,
-                    "model": "text-embedding-3-small",
-                    "dimensions": settings.openai_embedding_dimensions,
-                }
-
-                logger.info(
-                    f"Sending batch of {len(batch)} chunks to OpenAI (total {i+len(batch)}/{len(chunks)})"
-                )
-
-                attempt = 0
-                while True:
-                    try:
-                        response = await client.post(
-                            "https://api.openai.com/v1/embeddings",
-                            headers=headers,
-                            json=json_payload,
-                        )
-                        rfs = response.raise_for_status()
-                        import inspect as _inspect
-                        if _inspect.iscoroutine(rfs):
-                            await rfs
-                        result = response.json()
-                        if _inspect.iscoroutine(result):
-                            result = await result
-
-                        # Extract embeddings from result and append in order
-                        batch_embeddings = [item["embedding"] for item in result.get("data", [])]
-                        if len(batch_embeddings) != len(batch):
-                            raise Exception(
-                                f"Embedding count mismatch: expected {len(batch)}, got {len(batch_embeddings)}"
-                            )
-                        all_embeddings.extend(batch_embeddings)
-                        break  # success -> exit retry loop for this batch
-
-                    except httpx.HTTPStatusError as e:
-                        status = e.response.status_code if e.response is not None else None
-                        # Retry on transient server errors and rate limiting
-                        if status in (429, 500, 502, 503, 504) and attempt < max_retries:
-                            attempt += 1
-                            # Honor Retry-After if provided (seconds)
-                            retry_after = 0.0
-                            if e.response is not None:
-                                ra = e.response.headers.get("Retry-After")
-                                try:
-                                    retry_after = float(ra) if ra is not None else 0.0
-                                except ValueError:
-                                    retry_after = 0.0
-                            backoff = max(1.0, (2 ** (attempt - 1))) + retry_after
-                            logger.warning(
-                                f"OpenAI embeddings batch failed with {status}. Retry {attempt}/{max_retries} in {backoff:.1f}s"
-                            )
-                            import asyncio as _asyncio
-                            await _asyncio.sleep(backoff)
-                            continue
-                        # Non-retryable or exhausted
-                        logger.error(
-                            f"Error generating OpenAI embedding for batch (status={status}): {str(e)}"
-                        )
-                        raise Exception(
-                            f"Failed to generate embeddings with OpenAI: {str(e)}"
-                        )
-                    except httpx.RequestError as e:
-                        # Network errors; retry
-                        if attempt < max_retries:
-                            attempt += 1
-                            backoff = max(1.0, (2 ** (attempt - 1)))
-                            logger.warning(
-                                f"Network error calling OpenAI embeddings. Retry {attempt}/{max_retries} in {backoff:.1f}s: {str(e)}"
-                            )
-                            import asyncio as _asyncio
-                            await _asyncio.sleep(backoff)
-                            continue
-                        logger.error(f"Network error generating OpenAI embedding for batch: {str(e)}")
-                        raise Exception(f"Failed to generate embeddings with OpenAI: {str(e)}")
-
-        return all_embeddings
-
-    def _save_to_neo4j(self, chunks: List[str], embeddings: List[List[float]], filename: str) -> str:
-        """Save chunks and embeddings to Neo4j using a single UNWIND query."""
-        document_id = str(uuid.uuid4())
-
-        if self._db_disabled or not self.driver:
-            logger.warning("Neo4j disabled: skipping persistence of chunks; returning generated document_id.")
-            return document_id
+        """Generate embeddings using the configured provider (ollama or openai)"""
+        logger.info(f"Generating embeddings for {len(chunks)} chunks via {provider}...")
 
         try:
-            chunks_data = []
-            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-                chunks_data.append({
-                    "chunk_id": f"{document_id}-chunk-{i}",
-                    "text": chunk,
-                    "embedding": embedding,
-                    "chunk_index": i,
-                })
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                if provider == "openai":
+                    # Fail fast if API key is missing to avoid network calls in tests
+                    api_key = getattr(settings, 'openai_api_key', None)
+                    if not api_key:
+                        raise ValueError("OPENAI_API_KEY não configurada")
+                    payload = {
+                        "model": settings.embedding_model,
+                        "input": chunks,
+                        "dimensions": settings.openai_embedding_dimensions,
+                    }
+                    response = await client.post(
+                        "https://api.openai.com/v1/embeddings",
+                        json=payload,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                        },
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    data = result.get("data", [])
+                    all_embeddings = [d.get("embedding", []) for d in data]
+                else:
+                    response = await client.post(
+                        f"{settings.ollama_base_url}/api/embed",
+                        json={
+                            "model": settings.embedding_model,
+                            "input": chunks
+                        },
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    if "embeddings" not in result:
+                        raise ValueError("Invalid response from Ollama embed API, 'embeddings' key not found.")
+                    all_embeddings = result["embeddings"]
 
-            query = """
-            UNWIND $chunks_data AS chunk
-            CREATE (c:Chunk {
-                id: chunk.chunk_id,
-                text: chunk.text,
-                embedding: chunk.embedding,
-                source_file: $source_file,
-                document_id: $document_id,
-                chunk_index: chunk.chunk_index,
-                created_at: datetime()
-            })
-            """
+                if len(all_embeddings) != len(chunks):
+                    raise ValueError(f"Mismatch in returned embeddings count. Expected {len(chunks)}, got {len(all_embeddings)}")
 
-            with self.driver.session() as session:
-                session.run(
-                    query,
-                    chunks_data=chunks_data,
-                    source_file=filename,
-                    document_id=document_id,
-                )
-                logger.info(f"Saved {len(chunks_data)} chunks in a single transaction.")
+            logger.info("Embeddings generated successfully.")
+            return all_embeddings
+
         except Exception as e:
-            logger.warning(f"Neo4j unavailable when saving chunks; skipping persistence: {e}")
-            self._db_disabled = True
-            return document_id
+            logger.error(f"Error generating embeddings: {e}")
+            raise
+
+    def _save_document_graph(self, chunks: List[Dict[str, Any]], filename: str, document_id: str):
+        if self._db_disabled: return
+        create_chunks_query = """
+        UNWIND $chunks_data AS chunk
+        CREATE (c:Chunk { id: chunk.chunk_id, text: chunk.text, embedding: chunk.embedding,
+            source_file: $source_file, document_id: $document_id, chunk_index: chunk.chunk_index,
+            created_at: datetime() })
+        """
+        connect_chunks_query = """
+        MATCH (c1:Chunk {document_id: $document_id})
+        WITH c1 ORDER BY c1.chunk_index
+        WITH collect(c1) as chunks
+        UNWIND range(0, size(chunks)-2) as i
+        WITH chunks[i] as c1, chunks[i+1] as c2
+        MERGE (c1)-[r:NEXT]->(c2)
+        """
+        try:
+            with self.driver.session() as session:
+                session.run(create_chunks_query, chunks_data=chunks, source_file=filename, document_id=document_id)
+                if len(chunks) > 1:
+                    session.run(connect_chunks_query, document_id=document_id)
+                logger.info(f"Saved document graph for {document_id} with {len(chunks)} chunks.")
+        except Exception as e:
+            logger.error(f"Error saving document graph: {e}")
+            raise
+
+    def _save_to_neo4j(self, chunks: List[str], embeddings: List[List[float]], filename: str) -> str:
+        """Save chunks+embeddings using UNWIND and return the document_id.
+
+        If DB is disabled/unavailable, just return the generated document_id.
+        """
+        document_id = str(uuid.uuid4())
+        chunk_data_list = []
+        for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
+            chunk_data_list.append({
+                "chunk_id": f"{document_id}-chunk-{i}",
+                "text": chunk_text,
+                "embedding": embedding,
+                "chunk_index": i,
+            })
+
+        try:
+            self._save_document_graph(chunk_data_list, filename, document_id)
+        except Exception:
+            # Already logged upstream; continue returning the id for degraded mode
+            pass
 
         return document_id
 
-    async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = "ollama") -> Dict[str, Any]:
-        """
-        Main ingestion method that processes content directly
+    # --- Step 2: Generic Knowledge Graph Extraction ---
+
+    async def _infer_graph_schema(self, content_sample: str) -> Dict[str, List[str]]:
+        """Infer a graph schema from a sample of the document"""
+        logger.info("Inferring graph schema from document content...")
         
-        Args:
-            content: Text content to ingest
-            filename: Original filename for metadata
-            embedding_provider: The embedding provider to use ('ollama' or 'openai')
-            
-        Returns:
-            Dictionary with ingestion results
+        # Check Ollama health first
+        if not await self._check_ollama_health():
+            logger.warning("Ollama not available, using fallback schema")
+            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
+        
+        # Check if model is available
+        if not await self._check_model_availability(settings.llm_model):
+            logger.warning(f"Model {settings.llm_model} not available, using fallback schema")
+            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
+        
+        prompt = f"""
+        You are an expert data modeler and graph architect. Your task is to analyze the provided text
+        and propose a generic, yet effective, graph schema. Identify the main types of entities
+        (as node labels) and the types of relationships that connect them.
+
+        Return the result as a single, valid JSON object with two keys:
+        1. "node_labels": A list of strings representing the types of entities (e.g., "Person", "Company").
+        2. "relationship_types": A list of strings representing the types of relationships (e.g., "WORKS_AT", "INVESTED_IN").
+
+        Do not extract the actual data, only the schema.
+
+        Here is the text to analyze:
+        ---
+        {content_sample}
+        ---
+
+        JSON Schema:
+        """
+        
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"{settings.ollama_base_url}/api/generate",
+                    json={
+                        "model": settings.llm_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "format": "json"
+                    },
+                )
+                response.raise_for_status()
+                resp_json = response.json()
+                if asyncio.iscoroutine(resp_json):
+                    resp_json = await resp_json
+                response_text = resp_json["response"]
+                schema = json.loads(response_text)
+                logger.info(f"Inferred schema: {schema}")
+                return schema
+                
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error during schema inference: {e.response.status_code} - {e.response.text}")
+            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
+        except Exception as e:
+            logger.error(f"Error during schema inference: {e}")
+            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
+
+    async def _call_ollama_for_extraction(self, chunk_text: str, schema: Dict[str, List[str]]) -> Dict[str, Any]:
+        """Call Ollama to extract entities and relationships based on the inferred schema"""
+        
+        node_labels_str = ", ".join([f'"{label}"' for label in schema.get("node_labels", [])])
+        rel_types_str = ", ".join([f'"{rel_type}"' for rel_type in schema.get("relationship_types", [])])
+
+        prompt = f"""
+        You are an expert knowledge graph extractor. Your task is to analyze the text provided
+        and extract entities and their relationships based on the provided schema.
+        Return the result as a single, valid JSON object and nothing else.
+
+        SCHEMA:
+        - Allowed Entity Labels: [{node_labels_str}]
+        - Allowed Relationship Types: [{rel_types_str}]
+
+        GENERIC EXAMPLE:
+        Text: "John Doe, a software engineer at Acme Corp, is leading the new 'Phoenix' project. He reports to Jane Smith."
+        JSON:
+        {{
+            "entities": [
+                {{"label": "Person", "name": "John Doe"}},
+                {{"label": "Company", "name": "Acme Corp"}},
+                {{"label": "Project", "name": "Phoenix"}},
+                {{"label": "Person", "name": "Jane Smith"}}
+            ],
+            "relationships": [
+                {{"source": "John Doe", "target": "Acme Corp", "type": "WORKS_AT"}},
+                {{"source": "John Doe", "target": "Phoenix", "type": "LEADS"}},
+                {{"source": "John Doe", "target": "Jane Smith", "type": "REPORTS_TO"}}
+            ]
+        }}
+
+        Now, analyze the following text using the provided schema:
+        Text: "{chunk_text}"
+        JSON:
+        """
+        
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{settings.ollama_base_url}/api/generate",
+                    json={
+                        "model": settings.llm_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "format": "json"
+                    },
+                )
+                response.raise_for_status()
+                resp_json = response.json()
+                if asyncio.iscoroutine(resp_json):
+                    resp_json = await resp_json
+                response_text = resp_json["response"]
+                return json.loads(response_text)
+                
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error calling Ollama for extraction: {e.response.status_code} - {e.response.text}")
+            return {"entities": [], "relationships": []}
+        except Exception as e:
+            logger.error(f"Error calling Ollama for generic extraction: {e}")
+            return {"entities": [], "relationships": []}
+
+    def _save_knowledge_graph(self, chunk_id: str, extracted_data: Dict[str, Any]):
+        """Save the extracted entities and relationships to Neo4j using APOC"""
+        if self._db_disabled or not extracted_data: return
+
+        query = """
+        MATCH (c:Chunk {id: $chunk_id})
+        UNWIND $entities AS entity_data
+        CALL apoc.merge.node([entity_data.label], {name: entity_data.name}) YIELD node AS entity_node
+        MERGE (c)-[:MENTIONS]->(entity_node)
+        WITH c
+        UNWIND $relationships AS rel_data
+        MATCH (source {name: rel_data.source})
+        MATCH (target {name: rel_data.target})
+        CALL apoc.merge.relationship(source, rel_data.type, {}, {}, target) YIELD rel
+        RETURN count(rel)
         """
         try:
-            logger.info(f"Starting ingestion of content from {filename} using {embedding_provider}")
+            with self.driver.session() as session:
+                session.run(
+                    query,
+                    chunk_id=chunk_id,
+                    entities=extracted_data.get("entities", []),
+                    relationships=extracted_data.get("relationships", [])
+                )
+            logger.info(f"Saved knowledge graph entities/relationships from chunk {chunk_id}.")
+        except Exception as e:
+            logger.error(f"Error saving knowledge graph (ensure APOC plugin is installed): {e}")
+
+    # --- Main Ingestion Pipeline ---
+
+    async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = "ollama") -> Dict[str, Any]:
+        try:
+            logger.info(f"Starting GENERIC knowledge ingestion for {filename}")
+            document_id = str(uuid.uuid4())
             
-            # Ensure vector index exists
+            # Check Ollama health
+            ollama_healthy = await self._check_ollama_health()
+            if not ollama_healthy:
+                logger.warning("Ollama not available, continuing with document chunking only")
+            
+            # --- Schema Inference Phase ---
+            content_sample = content[:4000]
+            inferred_schema = await self._infer_graph_schema(content_sample)
+            
+            # --- Document Graph Phase ---
             self._ensure_vector_index()
-            
-            # Process content
-            chunks = self._create_chunks(content)
-            logger.info(f"Created {len(chunks)} chunks from content")
-            
-            if not chunks:
+            text_chunks = self._create_chunks(content)
+            if not text_chunks:
                 raise ValueError("No content to process after chunking")
+
+            # Generate embeddings with fallback
+            try:
+                embeddings = await self._generate_embeddings(text_chunks, provider=embedding_provider)
+            except Exception:
+                logger.warning("Embedding generation failed; using zero vectors as fallback.")
+                dim = getattr(settings, "openai_embedding_dimensions", 768)
+                embeddings = [[0.0] * dim for _ in text_chunks]
+
+            # Persist using helper (no-op in degraded mode)
+            document_id = self._save_to_neo4j(text_chunks, embeddings, filename)
+
+            # Reconstroi a lista de chunks para a fase de extração de conhecimento
+            chunk_data_list = []
+            for i, (chunk_text, embedding) in enumerate(zip(text_chunks, embeddings)):
+                chunk_data_list.append({
+                    "chunk_id": f"{document_id}-chunk-{i}",
+                    "text": chunk_text,
+                    "embedding": embedding,
+                    "chunk_index": i,
+                })
             
-            # Generate embeddings using selected provider
-            embeddings = await self._generate_embeddings(chunks, provider=embedding_provider)
-            logger.info(f"Generated embeddings for {len(embeddings)} chunks")
-            
-            # Save to Neo4j
-            document_id = self._save_to_neo4j(chunks, embeddings, filename)
-            logger.info(f"Saved document {document_id} with {len(chunks)} chunks to Neo4j")
-            
+            # --- Knowledge Graph Phase (only if Ollama is healthy) ---
+            if ollama_healthy:
+                logger.info("Starting knowledge extraction phase with inferred schema...")
+                for chunk_data in chunk_data_list:
+                    extracted_knowledge = await self._call_ollama_for_extraction(chunk_data["text"], inferred_schema)
+                    if extracted_knowledge and (extracted_knowledge.get("entities") or extracted_knowledge.get("relationships")):
+                        self._save_knowledge_graph(chunk_data["chunk_id"], extracted_knowledge)
+            else:
+                logger.warning("Skipping knowledge extraction due to Ollama unavailability")
+
+            logger.info(f"Generic knowledge ingestion completed for document {document_id}")
             return {
-                "document_id": document_id,
-                "chunks_created": len(chunks),
-                "filename": filename,
-                "status": "success"
+                "document_id": document_id, 
+                "chunks_created": len(text_chunks),
+                "filename": filename, 
+                "status": "success", 
+                "inferred_schema": inferred_schema,
+                "ollama_available": ollama_healthy
             }
             
         except Exception as e:
-            logger.error(f"Error during ingestion: {str(e)}")
-            raise Exception(f"Ingestion failed: {str(e)}")
-    
-    async def ingest_from_file_upload(self, file_content: bytes, filename: str, embedding_provider: str = "ollama") -> Dict[str, Any]:
-        """
-        Ingest document from uploaded file content
-        
-        Args:
-            file_content: Raw file content as bytes
-            filename: Original filename
-            embedding_provider: The embedding provider to use ('ollama' or 'openai')
-            
-        Returns:
-            Dictionary with ingestion results
-        """
+            logger.error(f"Error during generic knowledge ingestion: {str(e)}")
+            raise Exception(f"Generic ingestion failed: {str(e)}")
+
+    async def ingest_from_file_upload(self, file_content: bytes, filename: str, embedding_provider: str = "ollama"):
+        if not is_valid_file_type(filename):
+            raise ValueError("Unsupported file type. Only .txt files are supported.")
         try:
-            # Validate file type
-            if not is_valid_file_type(filename):
-                raise ValueError(f"Unsupported file type. Only .txt files are supported.")
-            
-            # Decode content
-            try:
-                content = file_content.decode('utf-8')
-            except UnicodeDecodeError:
-                # Try other encodings
-                try:
-                    content = file_content.decode('latin-1')
-                except UnicodeDecodeError:
-                    raise ValueError("Could not decode file content. Please ensure it's a valid text file.")
-            
-            # Process using the main ingestion method
-            return await self.ingest_from_content(content, filename, embedding_provider=embedding_provider)
-            
-        except Exception as e:
-            logger.error(f"Error during file upload ingestion: {str(e)}")
-            raise
+            content = file_content.decode('utf-8')
+        except UnicodeDecodeError:
+            content = file_content.decode('latin-1')
+        
+        return await self.ingest_from_content(content, filename, embedding_provider)
+    

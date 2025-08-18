@@ -54,7 +54,7 @@ def check_ollama_config():
     """Verifica configuração do Ollama"""
     ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
-    llm_model = os.getenv("LLM_MODEL", "qwen2:8b")
+    llm_model = os.getenv("LLM_MODEL", "qwen3:8b")
     
     print(f"🤖 Ollama URL: {ollama_url}")
     print(f"📊 Embedding Model: {embedding_model}")
