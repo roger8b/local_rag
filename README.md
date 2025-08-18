@@ -1,7 +1,11 @@
 # Local RAG com Python, LangChain e Neo4j
 
-![build](https://img.shields.io/badge/build-passing-brightgreen)
-![tests](https://img.shields.io/badge/tests-68%20passed-brightgreen)
+[![CI](https://github.com/<OWNER>/<REPO>/actions/workflows/tests.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/tests.yml)
+
+Sumário
+- Documentação completa
+- Guia rápido
+- Observações
 
 Este projeto implementa um sistema de Retrieval-Augmented Generation (RAG) local usando Python, LangChain e Neo4j.
 
@@ -32,3 +36,5 @@ python run_api.py
 Observações
 - Para `embedding_provider=openai`, defina `OPENAI_API_KEY`.
 - Em ambientes sem DB, use `NEO4J_VERIFY_CONNECTIVITY=false`.
+
+Nota sobre o badge: substitua `<OWNER>/<REPO>` acima pelo caminho real do repositório no GitHub para o badge refletir o status do workflow.

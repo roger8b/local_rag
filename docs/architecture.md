@@ -63,6 +63,24 @@ sequenceDiagram
   API-->>U: 201 Created
 ```
 
+Fluxo de consulta
+```mermaid
+sequenceDiagram
+  participant U as Cliente
+  participant API as API /query
+  participant R as VectorRetriever
+  participant G as ResponseGenerator
+  participant N as Neo4j
+  U->>API: POST /api/v1/query {question}
+  API->>R: retrieve(question)
+  R->>N: busca vetorial em :Chunk
+  N-->>R: chunks relevantes
+  R-->>API: fontes (DocumentSource[])
+  API->>G: generate_response(question, sources)
+  G-->>API: answer
+  API-->>U: 200 OK {answer, sources}
+```
+
 Fluxo de Dados
 1) Upload/Input → parsing e chunking.
 2) Embedding → geração de vetores por chunk (batch quando suportado).
