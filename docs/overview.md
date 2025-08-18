@@ -1,6 +1,6 @@
 # Visão Geral e Arquitetura
 
-Este projeto implementa um sistema de Retrieval-Augmented Generation (RAG) local usando Python, LangChain e Neo4j como banco de dados vetorial e de grafos. O sistema permite ingestão, indexação e recuperação de documentos para gerar respostas contextualizadas usando modelos de linguagem.
+Este projeto implementa um sistema de Retrieval-Augmented Generation (RAG) local usando Python, LangChain e Neo4j como banco de dados vetorial e de grafos. O sistema permite ingestão, indexação e recuperação de documentos para gerar respostas contextualizadas usando múltiplos provedores de modelos de linguagem (Ollama, OpenAI, Google Gemini).
 
 Arquitetura (alto nível)
 ```
@@ -15,7 +15,7 @@ Arquitetura (alto nível)
 ┌─────────────────┐    ┌─────────────────┐           │
 │   Interface     │    │   Geração       │           │
 │                 │    │                 │           │
-│ • API REST      │◀───│ • LLM Local     │◀──────────┘
+│ • API REST      │◀───│ • Multi-LLM     │◀──────────┘
 │ • Streamlit UI  │    │ • Prompt Eng.   │
 └─────────────────┘    └─────────────────┘
 ```
@@ -25,7 +25,7 @@ Componentes principais
 - Embeddings: Ollama (padrão) e OpenAI (opcional)
 - Armazenamento: nós `:Chunk` com `embedding` e relacionamentos
 - Recuperação: busca vetorial + grafo
-- Geração: LLM local via Ollama
+- Geração: Sistema flexível com múltiplos provedores LLM (Ollama, OpenAI, Gemini)
 
 Casos de uso
 - Base de conhecimento; documentação técnica; FAQ inteligente; análise de documentos; pesquisa acadêmica
