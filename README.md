@@ -101,11 +101,11 @@ python-dotenv>=1.0.0
 
 - Batch no Ollama: geração de embeddings em lote com uma única chamada ao endpoint (`input` como lista de chunks), reduzindo latência e sobrecarga.
 - Inserção em massa no Neo4j: persistência de todos os chunks em uma única transação usando `UNWIND $chunks_data AS chunk`.
-- Dimensão de embeddings da OpenAI configurável: uso do parâmetro `dimensions` (padrão 256) para reduzir custo/armazenamento e ajustar o índice vetorial.
+- Dimensão de embeddings da OpenAI configurável: uso do parâmetro `dimensions` (padrão 768) para ajustar o índice vetorial.
 
 ### Variáveis de Configuração Relevantes
 - `OPENAI_API_KEY`: chave para uso de embeddings da OpenAI (somente ingestão).
-- `OPENAI_EMBEDDING_DIMENSIONS` (env) / `settings.openai_embedding_dimensions` (código): dimensão dos embeddings OpenAI (default 256). Esta dimensão é usada:
+- `OPENAI_EMBEDDING_DIMENSIONS` (env) / `settings.openai_embedding_dimensions` (código): dimensão dos embeddings OpenAI (default 768). Esta dimensão é usada:
   - No payload enviado à API (`{"dimensions": <valor>}`)
   - Na criação/verificação do índice vetorial (Neo4j) via `_ensure_vector_index`.
 - `NEO4J_VERIFY_CONNECTIVITY` (env) / `settings.neo4j_verify_connectivity` (código): se `true` (padrão), valida a conectividade do Neo4j na inicialização do driver; se `false`, pula a checagem (útil em ambientes sem DB ou containers subindo em ordem).
@@ -114,7 +114,7 @@ Exemplo `.env` (não commitar este arquivo):
 ```
 # OpenAI
 OPENAI_API_KEY=sk-your-openai-key
-OPENAI_EMBEDDING_DIMENSIONS=256
+OPENAI_EMBEDDING_DIMENSIONS=768
 
 # Neo4j
 # Pule a checagem de conectividade do driver no startup, se necessário
@@ -137,7 +137,7 @@ Como usar
   - Mensagens de status no console e fechamento do driver ao final
 - Após a limpeza:
   - Uma nova ingestão recria automaticamente o índice vetorial (`document_embeddings`).
-  - A dimensão do índice passa a refletir a configuração atual (`OPENAI_EMBEDDING_DIMENSIONS`, default 256).
+  - A dimensão do índice passa a refletir a configuração atual (`OPENAI_EMBEDDING_DIMENSIONS`, default 768).
 
 ## API de Ingestão
 
