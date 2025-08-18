@@ -64,15 +64,15 @@ class IngestionService:
                     return
                 
                 # Create vector index
-                query = """
+                query = f"""
                 CREATE VECTOR INDEX document_embeddings IF NOT EXISTS
                 FOR (c:Chunk) ON (c.embedding)
-                OPTIONS {
-                    indexConfig: {
-                        `vector.dimensions`: 768,
+                OPTIONS {{
+                    indexConfig: {{
+                        `vector.dimensions`: {settings.openai_embedding_dimensions},
                         `vector.similarity_function`: 'cosine'
-                    }
-                }
+                    }}
+                }}
                 """
                 session.run(query)
                 logger.info("Created vector index 'document_embeddings'.")
@@ -95,33 +95,52 @@ class IngestionService:
             raise ValueError(f"Provedor de embedding desconhecido: {provider}")
 
     async def _generate_embeddings_ollama(self, chunks: List[str]) -> List[List[float]]:
-        """Generate embeddings for chunks using Ollama."""
-        embeddings = []
+        """Generate embeddings for chunks using Ollama with the new /api/embed endpoint."""
         async with httpx.AsyncClient(timeout=30.0) as client:
-            for chunk in chunks:
-                try:
-                    response = await client.post(
-                        f"{settings.ollama_base_url}/api/embeddings",
-                        json={"model": settings.embedding_model, "prompt": chunk},
-                    )
-                    rfs = response.raise_for_status()
-                    import inspect as _inspect
-                    if _inspect.iscoroutine(rfs):
-                        await rfs
-                    result = response.json()
-                    if _inspect.iscoroutine(result):
-                        result = await result
-                    embeddings.append(result["embedding"])
-                except Exception as e:
-                                        # In test environments or when running without Ollama, fall back to zero embeddings
-                    if os.getenv("PYTEST_CURRENT_TEST"):
-                        logger.warning(
-                            f"Ollama unavailable in test environment; using zero-vector fallback: {str(e)}"
+            try:
+                # ✅ CORREÇÃO: Usar a API nova /api/embed que suporta batch
+                response = await client.post(
+                    f"{settings.ollama_base_url}/api/embed",  # ← API nova!
+                    json={
+                        "model": settings.embedding_model, 
+                        "input": chunks  # ← Lista de chunks - suportado na API nova!
+                    },
+                )
+                rfs = response.raise_for_status()
+                import inspect as _inspect
+                if _inspect.iscoroutine(rfs):
+                    await rfs
+                
+                result = response.json()
+                if _inspect.iscoroutine(result):
+                    result = await result
+
+                # ✅ A API nova retorna {"embeddings": [[...], [...], ...]}
+                if isinstance(result, dict) and "embeddings" in result:
+                    batch_embeddings = result["embeddings"]
+                    
+                    if not isinstance(batch_embeddings, list):
+                        raise Exception("Invalid embeddings format from Ollama")
+                    
+                    if len(batch_embeddings) != len(chunks):
+                        raise Exception(
+                            f"Embedding count mismatch: expected {len(chunks)}, got {len(batch_embeddings)}"
                         )
-                        return [[0.0] * settings.embedding_dimension for _ in chunks]
-                    logger.error(f"Error generating Ollama embedding for chunk: {str(e)}")
-                    raise Exception(f"Failed to generate embeddings with Ollama: {str(e)}")
-        return embeddings
+                    
+                    logger.info(f"Successfully generated {len(batch_embeddings)} embeddings using batch API")
+                    return batch_embeddings
+                else:
+                    raise Exception("Invalid response format from Ollama embed endpoint")
+
+            except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                # In test environments or when running without Ollama, fall back to zero embeddings
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    logger.warning(
+                        f"Ollama unavailable in test environment; using zero-vector fallback: {str(e)}"
+                    )
+                    return [[0.0] * settings.embedding_dimension for _ in chunks]
+                logger.error(f"Error generating Ollama embeddings: {str(e)}")
+                raise Exception(f"Failed to generate embeddings with Ollama: {str(e)}")
 
     async def _generate_embeddings_openai(self, chunks: List[str]) -> List[List[float]]:
         """Generate embeddings for chunks using OpenAI in batches with retries/backoff.
@@ -150,6 +169,7 @@ class IngestionService:
                 json_payload = {
                     "input": batch,
                     "model": "text-embedding-3-small",
+                    "dimensions": settings.openai_embedding_dimensions,
                 }
 
                 logger.info(
@@ -225,43 +245,49 @@ class IngestionService:
         return all_embeddings
 
     def _save_to_neo4j(self, chunks: List[str], embeddings: List[List[float]], filename: str) -> str:
-        """Save chunks and embeddings to Neo4j"""
+        """Save chunks and embeddings to Neo4j using a single UNWIND query."""
         document_id = str(uuid.uuid4())
-        
+
         if self._db_disabled or not self.driver:
             logger.warning("Neo4j disabled: skipping persistence of chunks; returning generated document_id.")
             return document_id
-        
+
         try:
+            chunks_data = []
+            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                chunks_data.append({
+                    "chunk_id": f"{document_id}-chunk-{i}",
+                    "text": chunk,
+                    "embedding": embedding,
+                    "chunk_index": i,
+                })
+
+            query = """
+            UNWIND $chunks_data AS chunk
+            CREATE (c:Chunk {
+                id: chunk.chunk_id,
+                text: chunk.text,
+                embedding: chunk.embedding,
+                source_file: $source_file,
+                document_id: $document_id,
+                chunk_index: chunk.chunk_index,
+                created_at: datetime()
+            })
+            """
+
             with self.driver.session() as session:
-                for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-                    query = """
-                    CREATE (c:Chunk {
-                        id: $chunk_id,
-                        text: $text,
-                        embedding: $embedding,
-                        source_file: $source_file,
-                        document_id: $document_id,
-                        chunk_index: $chunk_index,
-                        created_at: datetime()
-                    })
-                    """
-                    chunk_id = f"{document_id}-chunk-{i}"
-                    session.run(
-                        query,
-                        chunk_id=chunk_id,
-                        text=chunk,
-                        embedding=embedding,
-                        source_file=filename,
-                        document_id=document_id,
-                        chunk_index=i
-                    )
-                    logger.debug(f"Saved chunk {i+1}/{len(chunks)} to Neo4j")
+                session.run(
+                    query,
+                    chunks_data=chunks_data,
+                    source_file=filename,
+                    document_id=document_id,
+                )
+                logger.info(f"Saved {len(chunks_data)} chunks in a single transaction.")
         except Exception as e:
             logger.warning(f"Neo4j unavailable when saving chunks; skipping persistence: {e}")
             self._db_disabled = True
             return document_id
-        
+
         return document_id
 
     async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = "ollama") -> Dict[str, Any]:
@@ -289,8 +315,8 @@ class IngestionService:
             if not chunks:
                 raise ValueError("No content to process after chunking")
             
-            # Generate embeddings
-            embeddings = await self._generate_embeddings(chunks)
+            # Generate embeddings using selected provider
+            embeddings = await self._generate_embeddings(chunks, provider=embedding_provider)
             logger.info(f"Generated embeddings for {len(embeddings)} chunks")
             
             # Save to Neo4j
