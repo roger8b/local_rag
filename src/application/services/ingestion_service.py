@@ -132,7 +132,7 @@ class IngestionService:
                     if not api_key:
                         raise ValueError("OPENAI_API_KEY não configurada")
                     payload = {
-                        "model": settings.embedding_model,
+                        "model": settings.openai_embedding_model,
                         "input": chunks,
                         "dimensions": settings.openai_embedding_dimensions,
                     }
@@ -378,7 +378,7 @@ class IngestionService:
 
     # --- Main Ingestion Pipeline ---
 
-    async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = "ollama") -> Dict[str, Any]:
+    async def ingest_from_content(self, content: str, filename: str) -> Dict[str, Any]:
         try:
             logger.info(f"Starting GENERIC knowledge ingestion for {filename}")
             document_id = str(uuid.uuid4())
@@ -400,7 +400,7 @@ class IngestionService:
 
             # Generate embeddings with fallback
             try:
-                embeddings = await self._generate_embeddings(text_chunks, provider=embedding_provider)
+                embeddings = await self._generate_embeddings(text_chunks, provider=settings.embedding_provider)
             except Exception:
                 logger.warning("Embedding generation failed; using zero vectors as fallback.")
                 dim = getattr(settings, "openai_embedding_dimensions", 768)
@@ -443,7 +443,7 @@ class IngestionService:
             logger.error(f"Error during generic knowledge ingestion: {str(e)}")
             raise Exception(f"Generic ingestion failed: {str(e)}")
 
-    async def ingest_from_file_upload(self, file_content: bytes, filename: str, embedding_provider: str = "ollama"):
+    async def ingest_from_file_upload(self, file_content: bytes, filename: str):
         if not is_valid_file_type(filename):
             raise ValueError("Unsupported file type. Only .txt files are supported.")
         try:
@@ -451,5 +451,5 @@ class IngestionService:
         except UnicodeDecodeError:
             content = file_content.decode('latin-1')
         
-        return await self.ingest_from_content(content, filename, embedding_provider)
+        return await self.ingest_from_content(content, filename)
     

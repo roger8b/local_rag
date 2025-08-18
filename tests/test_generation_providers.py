@@ -1,8 +1,9 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from src.generation.generator import create_llm_provider, ResponseGenerator
 from src.generation.providers.base import LLMProvider
 from src.generation.providers.ollama import OllamaProvider
+from src.generation.providers.openai import OpenAIProvider
 
 
 class TestLLMProviderFactory:
@@ -15,13 +16,15 @@ class TestLLMProviderFactory:
             provider = create_llm_provider()
             assert isinstance(provider, OllamaProvider)
     
-    def test_create_openai_provider_not_implemented(self):
-        """Test that factory raises NotImplementedError for OpenAI"""
-        with patch('src.generation.generator.settings') as mock_settings:
+    def test_create_openai_provider(self):
+        """Test that factory creates OpenAIProvider when configured"""
+        with patch('src.generation.generator.settings') as mock_settings, \
+             patch('src.generation.providers.openai.settings') as mock_openai_settings:
             mock_settings.llm_provider = "openai"
-            with pytest.raises(NotImplementedError) as exc_info:
-                create_llm_provider()
-            assert "não suportado ainda" in str(exc_info.value)
+            mock_openai_settings.openai_api_key = "test-key"
+            mock_openai_settings.openai_model = "gpt-4o-mini"
+            provider = create_llm_provider()
+            assert isinstance(provider, OpenAIProvider)
     
     def test_create_gemini_provider_not_implemented(self):
         """Test that factory raises NotImplementedError for Gemini"""
@@ -135,3 +138,104 @@ class TestOllamaProvider:
                 await provider.generate_response("Test question", [])
             
             assert "Error generating response with Ollama" in str(exc_info.value)
+
+
+class TestOpenAIProvider:
+    """Tests for the OpenAIProvider class"""
+    
+    def test_openai_provider_initialization_success(self):
+        """Test that OpenAIProvider initializes with correct settings"""
+        with patch('src.generation.providers.openai.settings') as mock_settings, \
+             patch('src.generation.providers.openai.openai.OpenAI') as mock_openai:
+            
+            mock_settings.openai_api_key = "test-key"
+            mock_settings.openai_model = "gpt-4o-mini"
+            
+            provider = OpenAIProvider()
+            assert provider.model == "gpt-4o-mini"
+            mock_openai.assert_called_once_with(api_key="test-key")
+    
+    def test_openai_provider_initialization_no_api_key(self):
+        """Test that OpenAIProvider fails without API key"""
+        with patch('src.generation.providers.openai.settings') as mock_settings:
+            mock_settings.openai_api_key = None
+            
+            with pytest.raises(ValueError) as exc_info:
+                OpenAIProvider()
+            
+            assert "OPENAI_API_KEY é obrigatória" in str(exc_info.value)
+    
+    async def test_openai_provider_generate_response_success(self):
+        """Test successful response generation with OpenAIProvider"""
+        with patch('src.generation.providers.openai.settings') as mock_settings, \
+             patch('src.generation.providers.openai.openai.OpenAI') as mock_openai_class:
+            
+            mock_settings.openai_api_key = "test-key"
+            mock_settings.openai_model = "gpt-4o-mini"
+            
+            # Mock OpenAI client and response
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.content = "Test response"
+            
+            mock_client.chat.completions.create.return_value = mock_response
+            
+            provider = OpenAIProvider()
+            result = await provider.generate_response("Test question", [])
+            
+            assert result == "Test response"
+            mock_client.chat.completions.create.assert_called_once()
+    
+    async def test_openai_provider_authentication_error(self):
+        """Test OpenAI authentication error handling"""
+        with patch('src.generation.providers.openai.settings') as mock_settings, \
+             patch('src.generation.providers.openai.openai.OpenAI') as mock_openai_class:
+            
+            mock_settings.openai_api_key = "invalid-key"
+            mock_settings.openai_model = "gpt-4o-mini"
+            
+            # Mock OpenAI client
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            
+            # Import actual openai and create a proper AuthenticationError
+            import openai
+            mock_client.chat.completions.create.side_effect = openai.AuthenticationError(
+                "Invalid API key", response=MagicMock(), body=MagicMock()
+            )
+            
+            provider = OpenAIProvider()
+            
+            with pytest.raises(Exception) as exc_info:
+                await provider.generate_response("Test question", [])
+            
+            assert "Erro de autenticação OpenAI" in str(exc_info.value)
+    
+    async def test_openai_provider_rate_limit_error(self):
+        """Test OpenAI rate limit error handling"""
+        with patch('src.generation.providers.openai.settings') as mock_settings, \
+             patch('src.generation.providers.openai.openai.OpenAI') as mock_openai_class:
+            
+            mock_settings.openai_api_key = "test-key"
+            mock_settings.openai_model = "gpt-4o-mini"
+            
+            # Mock OpenAI client
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            
+            # Import actual openai and create a proper RateLimitError
+            import openai
+            mock_client.chat.completions.create.side_effect = openai.RateLimitError(
+                "Rate limit exceeded", response=MagicMock(), body=MagicMock()
+            )
+            
+            provider = OpenAIProvider()
+            
+            with pytest.raises(Exception) as exc_info:
+                await provider.generate_response("Test question", [])
+            
+            assert "Erro de rate limit OpenAI" in str(exc_info.value)

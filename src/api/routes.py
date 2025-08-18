@@ -24,14 +24,14 @@ router = APIRouter(prefix="/api/v1")
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
     },
 )
-async def ingest_endpoint(file: UploadFile = File(...), embedding_provider: str = Form("ollama")):
+async def ingest_endpoint(file: UploadFile = File(...)):
     """
     Ingest a document file into the RAG system
     
     - **file**: Text file (.txt) to be processed and added to the knowledge base
-    - **embedding_provider**: The embedding provider to use ('ollama' or 'openai')
     
     The file will be processed, split into chunks, embedded, and stored in Neo4j.
+    The embedding provider is configured via EMBEDDING_PROVIDER setting.
     """
     try:
         # Validate file type
@@ -56,7 +56,7 @@ async def ingest_endpoint(file: UploadFile = File(...), embedding_provider: str 
         try:
             # Process the file
             result = await ingestion_service.ingest_from_file_upload(
-                file_content, file.filename, embedding_provider=embedding_provider
+                file_content, file.filename
             )
             
             return IngestResponse(

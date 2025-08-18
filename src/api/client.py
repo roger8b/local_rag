@@ -27,16 +27,17 @@ class RAGClient:
         except requests.exceptions.RequestException as e:
             return {"ok": False, "error": str(e)}
 
-    def upload_file(self, file_content: bytes, filename: str, embedding_provider: str = "ollama", upload_timeout: Optional[float] = None) -> Dict[str, Any]:
+    def upload_file(self, file_content: bytes, filename: str, upload_timeout: Optional[float] = None) -> Dict[str, Any]:
         """Upload a file to the RAG API for ingestion.
 
         Args:
             file_content: The file content as bytes
             filename: The name of the file
-            embedding_provider: The embedding provider to use ('ollama' or 'openai')
             upload_timeout: Optional timeout for upload (defaults to adaptive timeout based on file size)
 
         Returns a dict: {"ok": bool, "data": {...}} on success or {"ok": False, "error": str} on error.
+        
+        Note: The embedding provider is configured via EMBEDDING_PROVIDER setting.
         """
         # Validate inputs
         if not filename:
@@ -72,10 +73,8 @@ class RAGClient:
                 "file": (filename, file_obj, "text/plain")
             }
             
-            # Prepare the data payload
-            data = {
-                "embedding_provider": embedding_provider
-            }
+            # Prepare the data payload (empty as embedding provider is now configured via settings)
+            data = {}
             
             resp = requests.post(endpoint, files=files, data=data, timeout=adaptive_timeout)
             resp.raise_for_status()

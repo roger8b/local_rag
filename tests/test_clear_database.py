@@ -87,7 +87,7 @@ def test_after_clear_ingestion_recreates_index(monkeypatch):
         with patch.object(service, '_generate_embeddings', return_value=[[0.0]*8]):
             # Small content -> 1 chunk is fine
             import asyncio
-            asyncio.run(service.ingest_from_content("hello world", "test.txt", embedding_provider="ollama"))
+            asyncio.run(service.ingest_from_content("hello world", "test.txt"))
 
     # Expect SHOW INDEXES call then CREATE VECTOR INDEX in subsequent call
     joined = "\n".join(q for q,_ in call_log)
