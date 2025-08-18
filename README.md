@@ -108,12 +108,17 @@ python-dotenv>=1.0.0
 - `OPENAI_EMBEDDING_DIMENSIONS` (env) / `settings.openai_embedding_dimensions` (código): dimensão dos embeddings OpenAI (default 256). Esta dimensão é usada:
   - No payload enviado à API (`{"dimensions": <valor>}`)
   - Na criação/verificação do índice vetorial (Neo4j) via `_ensure_vector_index`.
+- `NEO4J_VERIFY_CONNECTIVITY` (env) / `settings.neo4j_verify_connectivity` (código): se `true` (padrão), valida a conectividade do Neo4j na inicialização do driver; se `false`, pula a checagem (útil em ambientes sem DB ou containers subindo em ordem).
 
 Exemplo `.env` (não commitar este arquivo):
 ```
 # OpenAI
 OPENAI_API_KEY=sk-your-openai-key
 OPENAI_EMBEDDING_DIMENSIONS=256
+
+# Neo4j
+# Pule a checagem de conectividade do driver no startup, se necessário
+NEO4J_VERIFY_CONNECTIVITY=false
 ```
 
 Observação: `.env` está no `.gitignore` e não deve ser versionado. Use `.env.example` como referência.
@@ -133,6 +138,23 @@ Como usar
 - Após a limpeza:
   - Uma nova ingestão recria automaticamente o índice vetorial (`document_embeddings`).
   - A dimensão do índice passa a refletir a configuração atual (`OPENAI_EMBEDDING_DIMENSIONS`, default 256).
+
+## API de Ingestão
+
+- Endpoint: `POST /api/v1/ingest`
+- Form-data:
+  - `file` (obrigatório): arquivo `.txt`
+  - `embedding_provider` (opcional): `ollama` (padrão) ou `openai`
+- Observações:
+  - Para `openai`, é necessário `OPENAI_API_KEY`.
+  - Se Ollama/OpenAI não estiverem disponíveis, o sistema usa vetores zero como fallback para não interromper o fluxo (útil em desenvolvimento).
+
+## Modo Degradado
+
+Quando o Neo4j não está acessível, o serviço entra em modo degradado:
+- A criação do índice é ignorada silenciosamente.
+- A persistência é pulada, mas um `document_id` ainda é gerado para rastreio de fluxo (sem efetiva gravação no DB).
+- Logs indicam o modo degradado; ajuste `NEO4J_VERIFY_CONNECTIVITY` conforme necessário.
 
 Exemplo de fluxo
 1) Limpar o banco: `python scripts/clear_database.py` (confirme com `yes`/`sim`)
