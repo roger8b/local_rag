@@ -125,3 +125,64 @@
     * - **Custo:** Chamadas à API do Google Gemini incorrem em custos. Os testes de integração devem usar mocks para evitar chamadas reais no pipeline de CI/CD.
     * - **Rate Limiting:** As APIs externas têm limites de taxa. Adicionar controle de retry e tratamento de erros configurável.
     * - **Modelos Disponíveis:** Verificar disponibilidade do modelo `gemini-2.0-flash-exp` e ter fallback se necessário.
+
+---
+### História 4: Seleção Dinâmica de Provider LLM via Interface e API
+* **Tipo:** Funcional / UX
+
+#### Parte 1: Especificação Funcional (Visão do Product Owner)
+* **História de Usuário:** Como um Usuário do sistema RAG, eu quero poder escolher qual provider LLM usar para cada consulta individual (Ollama, OpenAI, ou Gemini), para que eu possa comparar respostas, otimizar custos por pergunta, e ter flexibilidade total sobre qual modelo usar sem precisar reconfigurar o sistema.
+* **Requisitos / Detalhes:**
+    * A interface Streamlit deve ter um seletor visual para escolher o provider antes de fazer uma pergunta.
+    * A API deve aceitar um parâmetro opcional `provider` no request para sobrescrever a configuração padrão.
+    * O sistema deve mostrar qual provider foi usado na resposta (tanto na UI quanto na API).
+    * Deve haver fallback para o provider padrão caso o especificado não esteja disponível.
+    * A funcionalidade deve permitir comparação lado a lado entre providers.
+* **Critérios de Aceite (ACs):**
+    * **AC 1:** Dado que estou na interface Streamlit, quando eu seleciono "OpenAI" no dropdown de providers e faço uma pergunta, então a resposta é gerada usando OpenAI e o sistema indica claramente qual provider foi usado.
+    * **AC 2:** Dado que envio um `POST` para `/query` com `{"question": "teste", "provider": "gemini"}`, quando o sistema processa a requisição, então a resposta é gerada usando Gemini independente da configuração padrão do arquivo `.env`.
+    * **AC 3:** Dado que especifico um provider inválido (e.g., `"anthropic"`), quando o sistema processa a requisição, então ele retorna um erro claro listando os providers disponíveis.
+    * **AC 4:** Dado que especifico um provider que requer API key não configurada, quando o sistema tenta usar esse provider, então retorna erro informativo sobre a configuração necessária.
+* **Definição de 'Pronto' (DoD Checklist):**
+    * [ ] Interface Streamlit atualizada com seletor de provider.
+    * [ ] API aceita parâmetro `provider` opcional.
+    * [ ] Respostas incluem indicação do provider usado.
+    * [ ] Testes cobrindo todos os cenários de seleção dinâmica.
+    * [ ] Documentação atualizada explicando a nova funcionalidade.
+
+#### Parte 2: Especificação Técnica (Visão do Engenheiro)
+* **Abordagem Técnica Proposta:**
+    * Modificar o modelo `QueryRequest` para incluir campo opcional `provider`.
+    * Criar função `create_llm_provider_dynamic()` que aceita provider como parâmetro.
+    * Atualizar interface Streamlit com `st.selectbox` para escolha de provider.
+    * Implementar validação e tratamento de erros para providers indisponíveis.
+* **Backend:**
+    * - **Modelos de API:**
+        * Atualizar `src/models/api_models.py`:
+            * Adicionar `provider: Optional[Literal["ollama", "openai", "gemini"]] = None` em `QueryRequest`.
+            * Adicionar `provider_used: str` em `QueryResponse`.
+    * - **Lógica de Seleção:**
+        * Modificar `src/generation/generator.py`:
+            * Criar `create_llm_provider_dynamic(provider_override: Optional[str] = None)`.
+            * Implementar lógica de fallback e validação.
+        * Atualizar endpoint `/query` para usar o novo parâmetro.
+    * - **Validação:**
+        * Implementar validação de provider disponível.
+        * Verificar configuração de API keys necessárias.
+        * Retornar erros informativos com lista de providers válidos.
+* **Frontend (Streamlit):**
+    * - **Seletor de Provider:**
+        * Adicionar `st.selectbox` com opções: ["Auto (padrão)", "Ollama", "OpenAI", "Gemini"].
+        * Mostrar status de configuração (🟢 configurado, 🔴 não configurado) ao lado de cada opção.
+    * - **Indicação de Provider Usado:**
+        * Exibir badge ou tag mostrando qual provider gerou a resposta.
+        * Adicionar métricas de tempo de resposta por provider.
+    * - **Modo Comparação (Futuro):**
+        * Interface para comparar respostas de múltiplos providers lado a lado.
+* **Banco de Dados:**
+    * - Nenhuma alteração necessária.
+* **Questões em Aberto / Riscos:**
+    * - **Performance:** Chamadas para múltiplos providers simultaneamente podem impactar performance.
+    * - **Custo:** Facilitar mudança de provider pode aumentar uso inadvertido de APIs pagas.
+    * - **UX:** Interface deve ser clara sobre quais providers estão configurados e funcionais.
+    * - **Caching:** Considerar se cache de respostas deve ser por provider ou compartilhado.

@@ -119,13 +119,14 @@ async def query_endpoint(request: QueryRequest):
     Query endpoint for RAG (Retrieval-Augmented Generation)
     
     - **question**: The question to be answered (required)
+    - **provider**: Optional LLM provider to use ("ollama", "openai", "gemini"). If not specified, uses default from settings.
     
-    Returns the generated answer along with the source documents used.
+    Returns the generated answer along with the source documents used and the provider that was used.
     """
     try:
-        # Initialize retriever and generator
+        # Initialize retriever and generator with optional provider override
         retriever = VectorRetriever()
-        generator = ResponseGenerator()
+        generator = ResponseGenerator(provider_override=request.provider)
         
         try:
             # Retrieve relevant documents
@@ -143,7 +144,8 @@ async def query_endpoint(request: QueryRequest):
             return QueryResponse(
                 answer=answer,
                 sources=sources,
-                question=request.question
+                question=request.question,
+                provider_used=generator.get_provider_name()
             )
             
         finally:

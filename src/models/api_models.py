@@ -1,14 +1,19 @@
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 
 class QueryRequest(BaseModel):
     question: str = Field(..., description="The question to be answered", min_length=1)
+    provider: Optional[Literal["ollama", "openai", "gemini"]] = Field(
+        None, 
+        description="LLM provider to use for this query. If not specified, uses the default configured provider."
+    )
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "question": "Quais são os componentes principais do sistema RAG?"
+                "question": "Quais são os componentes principais do sistema RAG?",
+                "provider": "openai"
             }
         }
     )
@@ -31,6 +36,7 @@ class QueryResponse(BaseModel):
     answer: str = Field(..., description="The generated answer from the LLM")
     sources: List[DocumentSource] = Field(..., description="List of document chunks used as sources")
     question: str = Field(..., description="The original question")
+    provider_used: str = Field(..., description="The LLM provider that was used to generate this response")
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -46,6 +52,7 @@ class QueryResponse(BaseModel):
                     },
                 ],
                 "question": "Quais são os componentes principais do sistema RAG?",
+                "provider_used": "openai"
             }
         }
     )

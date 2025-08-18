@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 from src.config.settings import settings
 from src.models.api_models import DocumentSource
 from src.generation.providers.base import LLMProvider
@@ -21,10 +21,59 @@ def create_llm_provider() -> LLMProvider:
         raise ValueError(f"Provedor de LLM '{provider}' não suportado")
 
 
+def create_llm_provider_dynamic(provider_override: Optional[str] = None) -> Tuple[LLMProvider, str]:
+    """
+    Factory function to create LLM provider with optional override
+    
+    Args:
+        provider_override: Optional provider name to override default settings
+        
+    Returns:
+        Tuple of (provider_instance, provider_name_used)
+        
+    Raises:
+        ValueError: If provider is not supported or configuration is missing
+    """
+    # Use override if provided, otherwise fall back to settings
+    provider_name = provider_override.lower() if provider_override else settings.llm_provider.lower()
+    
+    # Validate provider is supported
+    supported_providers = ["ollama", "openai", "gemini"]
+    if provider_name not in supported_providers:
+        raise ValueError(
+            f"Provedor de LLM '{provider_name}' não suportado. "
+            f"Provedores disponíveis: {', '.join(supported_providers)}"
+        )
+    
+    try:
+        if provider_name == "ollama":
+            return OllamaProvider(), "ollama"
+        elif provider_name == "openai":
+            return OpenAIProvider(), "openai"
+        elif provider_name == "gemini":
+            return GeminiProvider(), "gemini"
+    except ValueError as e:
+        # Re-raise with more context about the provider
+        if "API" in str(e) or "key" in str(e).lower():
+            raise ValueError(
+                f"Erro de configuração para o provedor '{provider_name}': {str(e)}. "
+                f"Verifique se as credenciais estão configuradas corretamente."
+            )
+        raise
+
+
 class ResponseGenerator:
-    def __init__(self):
-        self.provider = create_llm_provider()
+    def __init__(self, provider_override: Optional[str] = None):
+        if provider_override:
+            self.provider, self.provider_name = create_llm_provider_dynamic(provider_override)
+        else:
+            self.provider = create_llm_provider()
+            self.provider_name = settings.llm_provider.lower()
     
     async def generate_response(self, question: str, sources: List[DocumentSource]) -> str:
         """Generate response using the configured LLM provider"""
         return await self.provider.generate_response(question, sources)
+    
+    def get_provider_name(self) -> str:
+        """Get the name of the provider being used"""
+        return self.provider_name
