@@ -81,6 +81,15 @@ sequenceDiagram
   API-->>U: 200 OK {answer, sources}
 ```
 
+Internals do Retriever (resumo)
+```mermaid
+flowchart TD
+  Q[question embedding] --> V[(document_embeddings index)]
+  V -->|top-k chunks| C[Chunk nodes]
+  C --> O{ordenar por score}
+  O --> S[Sources (DocumentSource[])]
+```
+
 Fluxo de Dados
 1) Upload/Input → parsing e chunking.
 2) Embedding → geração de vetores por chunk (batch quando suportado).

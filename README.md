@@ -1,6 +1,7 @@
 # Local RAG com Python, LangChain e Neo4j
 
-[![CI](https://github.com/<OWNER>/<REPO>/actions/workflows/tests.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/tests.yml)
+[![CI](https://github.com/roger8b/local_rag/actions/workflows/tests.yml/badge.svg)](https://github.com/roger8b/local_rag/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/roger8b/local_rag/branch/main/graph/badge.svg)](https://codecov.io/gh/roger8b/local_rag)
 
 Sumário
 - Documentação completa
@@ -37,4 +38,6 @@ Observações
 - Para `embedding_provider=openai`, defina `OPENAI_API_KEY`.
 - Em ambientes sem DB, use `NEO4J_VERIFY_CONNECTIVITY=false`.
 
-Nota sobre o badge: substitua `<OWNER>/<REPO>` acima pelo caminho real do repositório no GitHub para o badge refletir o status do workflow.
+Notas sobre os badges:
+- Repo público: badges já apontam para roger8b/local_rag.
+- Codecov não requer token para repositórios públicos.
