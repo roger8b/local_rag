@@ -8,8 +8,8 @@ Arquitetura (alto nível)
 │   Documentos    │    │   Processamento │    │   Armazenamento │
 │                 │    │                 │    │                 │
 │ • TXTs          │───▶│ • Splitter      │───▶│ • Neo4j         │
-│ • Webpages      │    │ • Embeddings    │    │ • Vetores       │
-│ • APIs          │    │ • Metadados     │    │ • Relacionamentos│
+│ • PDFs          │    │ • Embeddings    │    │ • Vetores       │
+│ • Webpages      │    │ • Metadados     │    │ • Relacionamentos│
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                                        │
 ┌─────────────────┐    ┌─────────────────┐           │

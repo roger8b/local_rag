@@ -24,21 +24,32 @@ router = APIRouter(prefix="/api/v1")
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
     },
 )
-async def ingest_endpoint(file: UploadFile = File(...)):
+async def ingest_endpoint(
+    file: UploadFile = File(...),
+    embedding_provider: str = Form("ollama")
+):
     """
     Ingest a document file into the RAG system
     
-    - **file**: Text file (.txt) to be processed and added to the knowledge base
+    - **file**: Text file (.txt) or PDF file (.pdf) to be processed and added to the knowledge base
+    - **embedding_provider**: Provider for embeddings ("ollama" or "openai", default: "ollama")
     
-    The file will be processed, split into chunks, embedded, and stored in Neo4j.
-    The embedding provider is configured via EMBEDDING_PROVIDER setting.
+    The file will be processed, split into chunks, embedded using the selected provider, and stored in Neo4j.
     """
     try:
+        # Validate embedding provider
+        valid_providers = ["ollama", "openai"]
+        if embedding_provider not in valid_providers:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid embedding provider: {embedding_provider}. Must be one of: {valid_providers}"
+            )
+        
         # Validate file type
         if not is_valid_file_type(file.filename):
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail=f"Unsupported file type. Only .txt files are supported. Received: {file.filename}"
+                detail=f"Unsupported file type: {file.filename}. Only .txt and .pdf files are supported."
             )
         
         # Read file content
@@ -56,7 +67,7 @@ async def ingest_endpoint(file: UploadFile = File(...)):
         try:
             # Process the file
             result = await ingestion_service.ingest_from_file_upload(
-                file_content, file.filename
+                file_content, file.filename, embedding_provider
             )
             
             return IngestResponse(

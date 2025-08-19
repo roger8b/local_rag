@@ -31,7 +31,7 @@ pip install -r requirements.txt
 python run_api.py
 ```
 3) Acesse http://localhost:8000/docs para usar:
-- POST /api/v1/ingest (upload de .txt)
+- POST /api/v1/ingest (upload de .txt e .pdf)
 - POST /api/v1/query
 
 Observações

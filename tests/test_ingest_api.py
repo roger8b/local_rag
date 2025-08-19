@@ -34,16 +34,16 @@ class TestIngestEndpoint:
     
     def test_ingest_invalid_file_type(self):
         """
-        AC 2: Test that non-.txt files are rejected with 415 status
+        AC 2: Test that unsupported files are rejected with 415 status
         """
-        # Prepare a non-txt file
-        test_content = b"This is a PDF file content"
-        files = {"file": ("test.pdf", test_content, "application/pdf")}
+        # Prepare a file with unsupported extension
+        test_content = b"This is content of an unsupported file"
+        files = {"file": ("test.docx", test_content, "application/docx")}
         
         response = client.post("/api/v1/ingest", files=files)
         
         assert response.status_code == 415
-        assert "Unsupported Media Type" in response.text or "unsupported" in response.text.lower()
+        assert "Unsupported file type" in response.text
     
     def test_ingest_no_file_provided(self):
         """
@@ -182,10 +182,12 @@ class TestFileValidation:
         assert is_valid_file_type("/path/to/file.txt") is True
     
     def test_is_txt_file_invalid_extension(self):
-        """Test that non-.txt files are rejected"""
+        """Test that unsupported files are rejected"""
         from src.application.services.ingestion_service import is_valid_file_type
         
-        assert is_valid_file_type("document.pdf") is False
+        # PDF agora é válido
+        assert is_valid_file_type("document.pdf") is True
+        # Outros tipos ainda são inválidos
         assert is_valid_file_type("image.jpg") is False
         assert is_valid_file_type("data.csv") is False
         assert is_valid_file_type("script.py") is False

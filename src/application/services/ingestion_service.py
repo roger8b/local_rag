@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 def is_valid_file_type(filename: str) -> bool:
-    """Check if the file has a valid .txt extension"""
-    return filename.lower().endswith('.txt')
+    """Check if the file has a valid extension (txt or pdf)"""
+    return filename.lower().endswith(('.txt', '.pdf'))
 
 
 class IngestionService:
@@ -378,7 +378,7 @@ class IngestionService:
 
     # --- Main Ingestion Pipeline ---
 
-    async def ingest_from_content(self, content: str, filename: str) -> Dict[str, Any]:
+    async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = None) -> Dict[str, Any]:
         try:
             logger.info(f"Starting GENERIC knowledge ingestion for {filename}")
             document_id = str(uuid.uuid4())
@@ -400,7 +400,9 @@ class IngestionService:
 
             # Generate embeddings with fallback
             try:
-                embeddings = await self._generate_embeddings(text_chunks, provider=settings.embedding_provider)
+                # Use provided embedding provider or fall back to settings
+                selected_provider = embedding_provider or settings.embedding_provider
+                embeddings = await self._generate_embeddings(text_chunks, provider=selected_provider)
             except Exception:
                 logger.warning("Embedding generation failed; using zero vectors as fallback.")
                 dim = getattr(settings, "openai_embedding_dimensions", 768)
@@ -419,15 +421,15 @@ class IngestionService:
                     "chunk_index": i,
                 })
             
-            # --- Knowledge Graph Phase (only if Ollama is healthy) ---
-            if ollama_healthy:
-                logger.info("Starting knowledge extraction phase with inferred schema...")
+            # --- Knowledge Graph Phase (only if Ollama is the selected provider) ---
+            if ollama_healthy and selected_provider == "ollama":
+                logger.info("Starting knowledge extraction phase with inferred schema (Ollama provider)...")
                 for chunk_data in chunk_data_list:
                     extracted_knowledge = await self._call_ollama_for_extraction(chunk_data["text"], inferred_schema)
                     if extracted_knowledge and (extracted_knowledge.get("entities") or extracted_knowledge.get("relationships")):
                         self._save_knowledge_graph(chunk_data["chunk_id"], extracted_knowledge)
             else:
-                logger.warning("Skipping knowledge extraction due to Ollama unavailability")
+                logger.warning(f"Skipping knowledge extraction phase. Reason: Ollama not healthy or provider is '{selected_provider}'.")
 
             logger.info(f"Generic knowledge ingestion completed for document {document_id}")
             return {
@@ -443,13 +445,15 @@ class IngestionService:
             logger.error(f"Error during generic knowledge ingestion: {str(e)}")
             raise Exception(f"Generic ingestion failed: {str(e)}")
 
-    async def ingest_from_file_upload(self, file_content: bytes, filename: str):
+    async def ingest_from_file_upload(self, file_content: bytes, filename: str, embedding_provider: str = "ollama"):
         if not is_valid_file_type(filename):
-            raise ValueError("Unsupported file type. Only .txt files are supported.")
-        try:
-            content = file_content.decode('utf-8')
-        except UnicodeDecodeError:
-            content = file_content.decode('latin-1')
+            raise ValueError(f"Unsupported file type: {filename}")
         
-        return await self.ingest_from_content(content, filename)
+        # Usar factory para obter loader apropriado
+        from .document_loaders import DocumentLoaderFactory
+        loader = DocumentLoaderFactory.get_loader(filename, file_content)
+        text_content = loader.extract_text()
+        
+        # Continuar com pipeline existente
+        return await self.ingest_from_content(text_content, filename, embedding_provider)
     

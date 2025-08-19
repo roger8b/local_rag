@@ -31,17 +31,17 @@ def render_page(rag_client=None, st=None):
 
     # Page description
     st.markdown("""
-    ### 📄 Faça o upload de seus documentos de texto
+    ### 📄 Faça o upload de seus documentos
     
     Use esta página para adicionar novos documentos à base de conhecimento do sistema.
-    Apenas arquivos de texto (`.txt`) são suportados.
+    Arquivos de texto (`.txt`) e PDF (`.pdf`) são suportados.
     """)
 
     # File uploader widget
     uploaded_file = st.file_uploader(
-        "Selecione um arquivo de texto (.txt)",
-        type=['txt'],
-        help="Apenas arquivos de texto (.txt) são permitidos"
+        "Selecione um arquivo de texto (.txt) ou PDF (.pdf)",
+        type=['txt', 'pdf'],
+        help="Arquivos de texto (.txt) e PDF (.pdf) são permitidos"
     )
 
     # Show file information if file is selected
@@ -116,7 +116,7 @@ def render_page(rag_client=None, st=None):
     
     ### 📤 Upload de Documentos
     1. **Configure** o tipo de embedding (Local ou OpenAI)
-    2. **Selecione** um arquivo `.txt` do seu computador (máximo 10 MB)
+    2. **Selecione** um arquivo `.txt` ou `.pdf` do seu computador (máximo 10 MB)
     3. **Clique** em "Enviar Documento" e acompanhe o progresso
     4. **Aguarde** o processamento (tempo varia conforme tamanho e tipo de embedding)
     
