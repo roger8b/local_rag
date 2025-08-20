@@ -53,7 +53,10 @@ class TestDocumentUploadPDF:
     def test_interface_accepts_pdf_extension(self):
         """Testa que o código da interface permite PDFs"""
         # Ler o arquivo da interface para verificar se permite PDF
-        with open("/Users/roger.silva/local_rag/src/ui/pages/document_upload.py", "r") as f:
+        from pathlib import Path
+        repo_root = Path(__file__).parents[2]
+        interface_path = repo_root / "src/ui/pages/document_upload.py"
+        with open(interface_path, "r") as f:
             content = f.read()
         
         # Verificar se 'pdf' está nos tipos aceitos

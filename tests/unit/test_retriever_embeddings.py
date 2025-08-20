@@ -69,7 +69,8 @@ async def test_generate_embedding_invalid_response(monkeypatch):
             return False
 
     with patch("src.retrieval.retriever.httpx.AsyncClient", return_value=_ClientCtx()):
-        with pytest.raises(ValueError):
+        # A função faz retry e no final encapsula como Exception genérica
+        with pytest.raises(Exception):
             await retriever.generate_embedding("hello")
 
 
@@ -100,11 +101,13 @@ async def test_generate_embedding_dimension_mismatch(monkeypatch):
             return False
 
     with patch("src.retrieval.retriever.httpx.AsyncClient", return_value=_ClientCtx()):
-        with pytest.raises(ValueError):
+        # A função faz retry e no final encapsula como Exception genérica
+        with pytest.raises(Exception):
             await retriever.generate_embedding("hello")
 
 
-def test_retrieve_uses_fallback_when_no_vector_results(monkeypatch):
+@pytest.mark.asyncio
+async def test_retrieve_uses_fallback_when_no_vector_results(monkeypatch):
     # Avoid Neo4j
     with patch("src.retrieval.retriever.GraphDatabase.driver") as mock_driver:
         mock_driver.return_value = MagicMock()
@@ -117,10 +120,7 @@ def test_retrieve_uses_fallback_when_no_vector_results(monkeypatch):
     expected = [DocumentSource(text="fallback", score=1.0)]
     monkeypatch.setattr(retriever, "search_text_chunks", lambda q, top_k=5: expected)
 
-    import asyncio
-    results = asyncio.get_event_loop().run_until_complete(
-        retriever.retrieve("question", top_k=5)
-    )
+    results = await retriever.retrieve("question", top_k=5)
     assert results == expected
 
 

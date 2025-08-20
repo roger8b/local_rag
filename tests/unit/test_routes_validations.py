@@ -19,10 +19,14 @@ def test_ingest_empty_file_returns_422():
 def test_query_with_provider_override_openai():
     with patch("src.retrieval.retriever.VectorRetriever.retrieve") as mock_retrieve, \
          patch("src.generation.generator.ResponseGenerator.generate_response") as mock_generate, \
-         patch("src.retrieval.retriever.VectorRetriever.close") as mock_close:
+         patch("src.retrieval.retriever.VectorRetriever.close") as mock_close, \
+         patch("src.generation.providers.openai.settings") as openai_settings:
 
         mock_retrieve.return_value = [DocumentSource(text="t", score=1.0)]
         mock_generate.return_value = "ans"
+        # Garantir que o provider OpenAI inicialize sem exigir env real
+        openai_settings.openai_api_key = "test-key"
+        openai_settings.openai_model = "gpt-4o-mini"
 
         resp = client.post("/api/v1/query", json={"question": "q", "provider": "openai"})
         assert resp.status_code == 200
