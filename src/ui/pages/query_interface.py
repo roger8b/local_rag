@@ -23,13 +23,14 @@ def get_provider_status(provider: str) -> tuple[str, str]:
         return "❓", "Desconhecido"
 
 
-def render_page(rag_client=None, st=None, selected_provider=None):
+def render_page(rag_client=None, st=None, selected_provider=None, selected_model=None):
     """Render the chat interface page.
 
     Parameters:
-        rag_client: an object with a .query(question, provider) -> {ok, data|error}
+        rag_client: an object with a .query(question, provider, model) -> {ok, data|error}
         st: streamlit module (or compatible), defaults to imported streamlit
         selected_provider: LLM provider selected from global selector
+        selected_model: Specific model selected for the provider
     """
     if st is None:
         import streamlit as st  # type: ignore
@@ -40,10 +41,11 @@ def render_page(rag_client=None, st=None, selected_provider=None):
     # Title
     st.title("🤖 Local RAG - Interface de Consulta")
     
-    # Show current provider info
+    # Show current provider and model info
     if selected_provider:
         provider_status, provider_desc = get_provider_status(selected_provider)
-        st.info(f"{provider_status} Usando **{selected_provider.upper()}** - {provider_desc}")
+        model_info = f" - Modelo: **{selected_model}**" if selected_model else ""
+        st.info(f"{provider_status} Usando **{selected_provider.upper()}**{model_info} - {provider_desc}")
     else:
         default_provider = os.getenv("LLM_PROVIDER", "ollama")
         st.info(f"🔄 Usando provider **padrão** ({default_provider.upper()})")
@@ -70,8 +72,9 @@ def render_page(rag_client=None, st=None, selected_provider=None):
 
         # Call backend with loading indicator
         provider_display = selected_provider.upper() if selected_provider else "provider padrão"
-        with st.spinner(f"Processando com {provider_display}..."):
-            result = rag_client.query(user_input, provider=selected_provider)
+        model_display = f" ({selected_model})" if selected_model else ""
+        with st.spinner(f"Processando com {provider_display}{model_display}..."):
+            result = rag_client.query(user_input, provider=selected_provider, model_name=selected_model)
 
         if result.get("ok"):
             data = result["data"]

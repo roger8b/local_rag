@@ -68,7 +68,7 @@ class FakeClient:
         self._error = error_msg
         self.calls = []
 
-    def query(self, question: str, provider=None):
+    def query(self, question: str, provider=None, model_name=None):
         self.calls.append(question)
         if self._ok:
             return {"ok": True, "data": {"answer": self._answer, "sources": [], "question": question}}

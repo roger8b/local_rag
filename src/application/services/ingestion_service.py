@@ -378,7 +378,7 @@ class IngestionService:
 
     # --- Main Ingestion Pipeline ---
 
-    async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = None) -> Dict[str, Any]:
+    async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = None, model_name: str = None) -> Dict[str, Any]:
         try:
             logger.info(f"Starting GENERIC knowledge ingestion for {filename}")
             document_id = str(uuid.uuid4())
@@ -445,7 +445,7 @@ class IngestionService:
             logger.error(f"Error during generic knowledge ingestion: {str(e)}")
             raise Exception(f"Generic ingestion failed: {str(e)}")
 
-    async def ingest_from_file_upload(self, file_content: bytes, filename: str, embedding_provider: str = "ollama"):
+    async def ingest_from_file_upload(self, file_content: bytes, filename: str, embedding_provider: str = "ollama", model_name: str = None):
         if not is_valid_file_type(filename):
             raise ValueError(f"Unsupported file type: {filename}")
         
@@ -455,5 +455,5 @@ class IngestionService:
         text_content = loader.extract_text()
         
         # Continuar com pipeline existente
-        return await self.ingest_from_content(text_content, filename, embedding_provider)
+        return await self.ingest_from_content(text_content, filename, embedding_provider, model_name)
     

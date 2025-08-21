@@ -9,11 +9,16 @@ class QueryRequest(BaseModel):
         None, 
         description="LLM provider to use for this query. If not specified, uses the default configured provider."
     )
+    model_name: Optional[str] = Field(
+        None,
+        description="Specific model to use within the provider. If not specified, uses the default model for the provider."
+    )
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "question": "Quais são os componentes principais do sistema RAG?",
-                "provider": "openai"
+                "provider": "openai",
+                "model_name": "gpt-4o-mini"
             }
         }
     )

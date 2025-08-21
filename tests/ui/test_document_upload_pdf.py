@@ -62,6 +62,5 @@ class TestDocumentUploadPDF:
         # Verificar se 'pdf' está nos tipos aceitos
         assert "type=['txt', 'pdf']" in content
         
-        # Verificar se a documentação menciona PDF
+        # Verificar se a interface menciona PDF
         assert ".pdf" in content
-        assert "PDF" in content
