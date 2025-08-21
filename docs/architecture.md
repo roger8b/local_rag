@@ -26,7 +26,7 @@ Componentes
 - Armazenamento: Neo4j com nós `:Chunk` contendo `text`, `embedding`, `chunk_index`, `document_id` e relacionamento sequencial `(:Chunk)-[:NEXT]->(:Chunk)`.
 - Índice Vetorial: `document_embeddings` com `vector.dimensions` e `cosine` (criado em `_ensure_vector_index`).
 - Recuperação: busca vetorial sobre `:Chunk` (detalhes no retriever).
-- Geração: LLM local (Ollama `/api/generate`) com contexto dos chunks recuperados.
+- Geração: Sistema flexível de provedores LLM (Ollama, OpenAI, Gemini) com factory pattern para seleção baseada em configuração.
 
 Diagramas (Mermaid)
 
@@ -41,7 +41,8 @@ graph LR
   C --> G[(Neo4j)]
   G <---> H[VectorRetriever]
   H --> I[ResponseGenerator]
-  I --> J[API Query]
+  I --> |Factory Pattern| K[LLMProvider]
+  K --> |Ollama/OpenAI/Gemini| J[API Query]
 ```
 
 Fluxo de ingestão
@@ -70,6 +71,7 @@ sequenceDiagram
   participant API as API /query
   participant R as VectorRetriever
   participant G as ResponseGenerator
+  participant P as LLMProvider
   participant N as Neo4j
   U->>API: POST /api/v1/query {question}
   API->>R: retrieve(question)
@@ -77,6 +79,8 @@ sequenceDiagram
   N-->>R: chunks relevantes
   R-->>API: fontes (DocumentSource[])
   API->>G: generate_response(question, sources)
+  G->>P: generate_response via factory
+  P-->>G: response
   G-->>API: answer
   API-->>U: 200 OK {answer, sources}
 ```
@@ -114,9 +118,75 @@ src/
   api/                 # FastAPI endpoints
   application/services # IngestionService e serviços
   retrieval/           # Retriever vetorial
-  generation/          # Resposta/LLM
-  config/              # Settings
+  generation/          # Sistema de geração com providers
+    providers/         # Implementações de LLM (Ollama, OpenAI, Gemini)
+      base.py          # Interface abstrata LLMProvider
+      ollama.py        # Implementação Ollama
+    generator.py       # Factory e ResponseGenerator
+  config/              # Settings com configuração de providers
   ui/                  # Streamlit
 scripts/               # utilitários (clear_database.py)
 docs/                  # documentação
 ```
+
+## Arquitetura de Providers
+
+O sistema utiliza o padrão **Strategy/Factory** para suporte a múltiplos provedores de LLM:
+
+### Padrão Strategy
+```mermaid
+classDiagram
+  class LLMProvider {
+    <<abstract>>
+    +generate_response(question, sources) str
+    +_build_prompt(question, sources) str
+  }
+  
+  class OllamaProvider {
+    +base_url: str
+    +model: str
+    +generate_response(question, sources) str
+  }
+  
+  class OpenAIProvider {
+    +api_key: str
+    +model: str
+    +generate_response(question, sources) str
+  }
+  
+  class GeminiProvider {
+    +api_key: str
+    +model: str
+    +generate_response(question, sources) str
+  }
+  
+  LLMProvider <|-- OllamaProvider
+  LLMProvider <|-- OpenAIProvider
+  LLMProvider <|-- GeminiProvider
+  
+  class ResponseGenerator {
+    +provider: LLMProvider
+    +generate_response(question, sources) str
+  }
+  
+  ResponseGenerator --> LLMProvider
+```
+
+### Factory Pattern
+```mermaid
+flowchart TD
+  A[Settings.LLM_PROVIDER] --> B{create_llm_provider()}
+  B -->|ollama| C[OllamaProvider]
+  B -->|openai| D[OpenAIProvider]
+  B -->|gemini| E[GeminiProvider]
+  B -->|invalid| F[ValueError]
+  C --> G[ResponseGenerator]
+  D --> G
+  E --> G
+```
+
+### Benefícios da Arquitetura
+- **Extensibilidade**: Novos provedores implementam apenas a interface `LLMProvider`
+- **Flexibilidade**: Troca de provider via configuração sem mudança de código
+- **Testabilidade**: Cada provider pode ser testado isoladamente
+- **Manutenibilidade**: Responsabilidades claras e separadas

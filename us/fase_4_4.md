@@ -84,3 +84,105 @@
 * **Questões em Aberto / Riscos:**
     * - **Custo:** Chamadas à API da OpenAI incorrem em custos. Os testes de integração devem usar mocks para evitar chamadas reais no pipeline de CI/CD.
     * - **Rate Limiting:** As APIs externas têm limites de taxa. Adicione controle de retry e deixe configuravel para evitar problemas.
+
+---
+### História 3: Implementação do Provedor Google Gemini para Geração de Respostas
+* **Tipo:** Funcional
+
+#### Parte 1: Especificação Funcional (Visão do Product Owner)
+* **História de Usuário:** Como um Desenvolvedor, eu quero integrar os modelos do Google Gemini como uma opção para geração de respostas, para que eu possa utilizar seus modelos avançados e comparar performance/custo com outras soluções disponíveis.
+* **Requisitos / Detalhes:**
+    * O sistema deve ser capaz de usar um modelo do Google Gemini (e.g., `gemini-2.0-flash-exp`) para o serviço de geração quando configurado.
+    * A chave da API do Google deve ser lida a partir das configurações (que por sua vez a lê de uma variável de ambiente).
+    * A funcionalidade deve ser testável de ponta a ponta.
+    * O provider deve manter compatibilidade com a interface existente.
+* **Critérios de Aceite (ACs):**
+    * **AC 1:** Dado que `LLM_PROVIDER="gemini"` e uma `GOOGLE_API_KEY` válida está configurada, quando eu envio uma `POST` para `/query`, então a resposta é gerada com sucesso pela API do Google Gemini.
+    * **AC 2:** Dado que a `GOOGLE_API_KEY` é inválida ou não foi fornecida, quando o sistema tenta usar o serviço do Gemini, então ele retorna um erro claro e informativo (e.g., `500 Internal Server Error` com a causa raiz).
+    * **AC 3:** Dado que o factory foi atualizado, quando o sistema é configurado para usar Gemini, então a resposta é gerada sem modificar outros componentes do sistema.
+* **Definição de 'Pronto' (DoD Checklist):**
+    * [ ] Código revisado por um par (PR aprovado).
+    * [ ] Testes de integração que validam o fluxo com Google Gemini foram criados e estão passando (podem necessitar de mocks para a API externa).
+    * [ ] A dependência do cliente Python do Google Generative AI foi adicionada ao `requirements.txt`.
+    * [ ] A documentação de configuração foi atualizada para explicar como usar o provedor Gemini.
+
+#### Parte 2: Especificação Técnica (Visão do Engenheiro)
+* **Abordagem Técnica Proposta:**
+    * Criar nova classe `GeminiProvider` que implementa a interface `LLMProvider` definida na arquitetura. Esta classe irá encapsular as chamadas ao SDK do Google Generative AI.
+* **Backend:**
+    * - **Dependências:** Adicionar `google-generativeai` ao `requirements.txt`.
+    * - **Implementação do LLM:**
+        * Criar `src/generation/providers/gemini.py`.
+        * Implementar a classe `GeminiProvider` herdando de `LLMProvider`.
+        * O método `generate_response` irá instanciar o cliente do Gemini, fazer a chamada para `model.generate_content()` e formatar a resposta.
+        * Usar o modelo `gemini-2.0-flash-exp` conforme configurado.
+    * - **Atualização do Factory:** Atualizar a lógica no factory de serviços para instanciar a classe `GeminiProvider` quando `settings.LLM_PROVIDER` for `"gemini"`.
+* **Frontend:**
+    * - N/A.
+* **Banco de Dados:**
+    * - Nenhuma alteração de schema.
+* **Questões em Aberto / Riscos:**
+    * - **Custo:** Chamadas à API do Google Gemini incorrem em custos. Os testes de integração devem usar mocks para evitar chamadas reais no pipeline de CI/CD.
+    * - **Rate Limiting:** As APIs externas têm limites de taxa. Adicionar controle de retry e tratamento de erros configurável.
+    * - **Modelos Disponíveis:** Verificar disponibilidade do modelo `gemini-2.0-flash-exp` e ter fallback se necessário.
+
+---
+### História 4: Seleção Dinâmica de Provider LLM via Interface e API
+* **Tipo:** Funcional / UX
+
+#### Parte 1: Especificação Funcional (Visão do Product Owner)
+* **História de Usuário:** Como um Usuário do sistema RAG, eu quero poder escolher qual provider LLM usar para cada consulta individual (Ollama, OpenAI, ou Gemini), para que eu possa comparar respostas, otimizar custos por pergunta, e ter flexibilidade total sobre qual modelo usar sem precisar reconfigurar o sistema.
+* **Requisitos / Detalhes:**
+    * A interface Streamlit deve ter um seletor visual para escolher o provider antes de fazer uma pergunta.
+    * A API deve aceitar um parâmetro opcional `provider` no request para sobrescrever a configuração padrão.
+    * O sistema deve mostrar qual provider foi usado na resposta (tanto na UI quanto na API).
+    * Deve haver fallback para o provider padrão caso o especificado não esteja disponível.
+    * A funcionalidade deve permitir comparação lado a lado entre providers.
+* **Critérios de Aceite (ACs):**
+    * **AC 1:** Dado que estou na interface Streamlit, quando eu seleciono "OpenAI" no dropdown de providers e faço uma pergunta, então a resposta é gerada usando OpenAI e o sistema indica claramente qual provider foi usado.
+    * **AC 2:** Dado que envio um `POST` para `/query` com `{"question": "teste", "provider": "gemini"}`, quando o sistema processa a requisição, então a resposta é gerada usando Gemini independente da configuração padrão do arquivo `.env`.
+    * **AC 3:** Dado que especifico um provider inválido (e.g., `"anthropic"`), quando o sistema processa a requisição, então ele retorna um erro claro listando os providers disponíveis.
+    * **AC 4:** Dado que especifico um provider que requer API key não configurada, quando o sistema tenta usar esse provider, então retorna erro informativo sobre a configuração necessária.
+* **Definição de 'Pronto' (DoD Checklist):**
+    * [ ] Interface Streamlit atualizada com seletor de provider.
+    * [ ] API aceita parâmetro `provider` opcional.
+    * [ ] Respostas incluem indicação do provider usado.
+    * [ ] Testes cobrindo todos os cenários de seleção dinâmica.
+    * [ ] Documentação atualizada explicando a nova funcionalidade.
+
+#### Parte 2: Especificação Técnica (Visão do Engenheiro)
+* **Abordagem Técnica Proposta:**
+    * Modificar o modelo `QueryRequest` para incluir campo opcional `provider`.
+    * Criar função `create_llm_provider_dynamic()` que aceita provider como parâmetro.
+    * Atualizar interface Streamlit com `st.selectbox` para escolha de provider.
+    * Implementar validação e tratamento de erros para providers indisponíveis.
+* **Backend:**
+    * - **Modelos de API:**
+        * Atualizar `src/models/api_models.py`:
+            * Adicionar `provider: Optional[Literal["ollama", "openai", "gemini"]] = None` em `QueryRequest`.
+            * Adicionar `provider_used: str` em `QueryResponse`.
+    * - **Lógica de Seleção:**
+        * Modificar `src/generation/generator.py`:
+            * Criar `create_llm_provider_dynamic(provider_override: Optional[str] = None)`.
+            * Implementar lógica de fallback e validação.
+        * Atualizar endpoint `/query` para usar o novo parâmetro.
+    * - **Validação:**
+        * Implementar validação de provider disponível.
+        * Verificar configuração de API keys necessárias.
+        * Retornar erros informativos com lista de providers válidos.
+* **Frontend (Streamlit):**
+    * - **Seletor de Provider:**
+        * Adicionar `st.selectbox` com opções: ["Auto (padrão)", "Ollama", "OpenAI", "Gemini"].
+        * Mostrar status de configuração (🟢 configurado, 🔴 não configurado) ao lado de cada opção.
+    * - **Indicação de Provider Usado:**
+        * Exibir badge ou tag mostrando qual provider gerou a resposta.
+        * Adicionar métricas de tempo de resposta por provider.
+    * - **Modo Comparação (Futuro):**
+        * Interface para comparar respostas de múltiplos providers lado a lado.
+* **Banco de Dados:**
+    * - Nenhuma alteração necessária.
+* **Questões em Aberto / Riscos:**
+    * - **Performance:** Chamadas para múltiplos providers simultaneamente podem impactar performance.
+    * - **Custo:** Facilitar mudança de provider pode aumentar uso inadvertido de APIs pagas.
+    * - **UX:** Interface deve ser clara sobre quais providers estão configurados e funcionais.
+    * - **Caching:** Considerar se cache de respostas deve ser por provider ou compartilhado.

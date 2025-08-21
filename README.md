@@ -8,7 +8,7 @@ Sumário
 - Guia rápido
 - Observações
 
-Este projeto implementa um sistema de Retrieval-Augmented Generation (RAG) local usando Python, LangChain e Neo4j.
+Este projeto implementa um sistema de Retrieval-Augmented Generation (RAG) local usando Python, LangChain e Neo4j. O sistema suporta múltiplos provedores de LLM (Ollama, OpenAI, Google Gemini) através de uma arquitetura flexível baseada no padrão Strategy.
 
 Documentação completa
 - Visão geral e arquitetura: docs/overview.md
@@ -31,12 +31,14 @@ pip install -r requirements.txt
 python run_api.py
 ```
 3) Acesse http://localhost:8000/docs para usar:
-- POST /api/v1/ingest (upload de .txt)
+- POST /api/v1/ingest (upload de .txt e .pdf)
 - POST /api/v1/query
 
 Observações
-- Para `embedding_provider=openai`, defina `OPENAI_API_KEY`.
-- Em ambientes sem DB, use `NEO4J_VERIFY_CONNECTIVITY=false`.
+- **Provedores LLM**: Configure `LLM_PROVIDER` para `ollama` (padrão), `openai` ou `gemini`
+- **Provedores Embedding**: Configure `EMBEDDING_PROVIDER` para `ollama` (padrão) ou `openai`
+- Para provedores externos, defina as respectivas chaves de API: `OPENAI_API_KEY`, `GOOGLE_API_KEY`
+- Em ambientes sem DB, use `NEO4J_VERIFY_CONNECTIVITY=false`
 
 Notas sobre os badges:
 - Repo público: badges já apontam para roger8b/local_rag.

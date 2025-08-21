@@ -13,7 +13,7 @@ Resposta
 
 Notas
 - A recuperação usa busca vetorial sobre nós `:Chunk` no Neo4j
-- A geração usa LLM local via Ollama
+- A geração usa sistema flexível de provedores LLM (configurável via `LLM_PROVIDER`)
 
 Fluxo (Mermaid)
 ```mermaid
@@ -22,6 +22,7 @@ sequenceDiagram
   participant API as API /query
   participant R as VectorRetriever
   participant G as ResponseGenerator
+  participant P as LLMProvider
   participant N as Neo4j
   U->>API: POST /api/v1/query {question}
   API->>R: retrieve(question)
@@ -29,6 +30,8 @@ sequenceDiagram
   N-->>R: chunks relevantes
   R-->>API: fontes (DocumentSource[])
   API->>G: generate_response(question, sources)
+  G->>P: delegate via factory pattern
+  P-->>G: response
   G-->>API: answer
   API-->>U: 200 OK {answer, sources}
 ```

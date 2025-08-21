@@ -24,6 +24,10 @@ httpx>=0.25.0
 requests>=2.31.0
 aiohttp>=3.8.0
 
+# External LLM providers
+openai>=1.0.0
+google-generativeai>=0.8.0
+
 # File upload support for FastAPI
 python-multipart>=0.0.6
 

@@ -38,6 +38,14 @@ class FakeSt:
     def chat_input(self, _label):
         return self._user_input
 
+    def info(self, message):
+        """Mock info method for streamlit"""
+        pass
+    
+    def caption(self, text):
+        """Mock caption method for streamlit"""
+        pass
+    
     def spinner(self, _text):
         class Spin:
             def __init__(self, outer):
@@ -60,7 +68,7 @@ class FakeClient:
         self._error = error_msg
         self.calls = []
 
-    def query(self, question: str):
+    def query(self, question: str, provider=None, model_name=None):
         self.calls.append(question)
         if self._ok:
             return {"ok": True, "data": {"answer": self._answer, "sources": [], "question": question}}

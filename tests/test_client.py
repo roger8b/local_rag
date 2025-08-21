@@ -163,16 +163,16 @@ class TestRAGClientUploadFile:
         assert "error" in result
         assert "Filename cannot be empty" in result["error"]
     
-    def test_upload_file_non_txt_extension(self):
-        """Test file upload with non-.txt extension"""
+    def test_upload_file_unsupported_extension(self):
+        """Test file upload with unsupported extension"""
         file_content = b"This is test content."
-        filename = "document.pdf"
+        filename = "document.docx"  # Changed to truly unsupported format
         
         result = self.client.upload_file(file_content, filename)
         
         assert result["ok"] is False
         assert "error" in result
-        assert "Only .txt files are supported" in result["error"]
+        assert "Only .txt and .pdf files are supported" in result["error"]
     
     def test_upload_file_too_large(self):
         """Test file upload with file larger than 10MB"""

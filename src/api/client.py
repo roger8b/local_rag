@@ -14,26 +14,38 @@ class RAGClient:
         self.base_url = base_url or os.getenv("API_BASE_URL", "http://localhost:8000")
         self.timeout = timeout
 
-    def query(self, question: str) -> Dict[str, Any]:
+    def query(self, question: str, provider: Optional[str] = None, model_name: Optional[str] = None) -> Dict[str, Any]:
         """Send a question to the RAG API and return response dict.
+
+        Args:
+            question: The question to ask
+            provider: Optional LLM provider ("ollama", "openai", "gemini"). If None, uses system default.
+            model_name: Optional specific model name to use. If None, uses provider default.
 
         Returns a dict: {"ok": bool, "data": {...}} on success or {"ok": False, "error": str} on error.
         """
         endpoint = f"{self.base_url}/api/v1/query"
+        payload = {"question": question}
+        if provider:
+            payload["provider"] = provider
+        if model_name:
+            payload["model_name"] = model_name
+            
         try:
-            resp = requests.post(endpoint, json={"question": question}, timeout=self.timeout)
+            resp = requests.post(endpoint, json=payload, timeout=self.timeout)
             resp.raise_for_status()
             return {"ok": True, "data": resp.json()}
         except requests.exceptions.RequestException as e:
             return {"ok": False, "error": str(e)}
 
-    def upload_file(self, file_content: bytes, filename: str, embedding_provider: str = "ollama", upload_timeout: Optional[float] = None) -> Dict[str, Any]:
+    def upload_file(self, file_content: bytes, filename: str, embedding_provider: str = "ollama", model_name: Optional[str] = None, upload_timeout: Optional[float] = None) -> Dict[str, Any]:
         """Upload a file to the RAG API for ingestion.
 
         Args:
             file_content: The file content as bytes
             filename: The name of the file
-            embedding_provider: The embedding provider to use ('ollama' or 'openai')
+            embedding_provider: Embedding provider to use ("ollama", "openai")
+            model_name: Optional specific model name to use for embeddings
             upload_timeout: Optional timeout for upload (defaults to adaptive timeout based on file size)
 
         Returns a dict: {"ok": bool, "data": {...}} on success or {"ok": False, "error": str} on error.
@@ -42,8 +54,8 @@ class RAGClient:
         if not filename:
             return {"ok": False, "error": "Filename cannot be empty"}
         
-        if not filename.lower().endswith('.txt'):
-            return {"ok": False, "error": "Only .txt files are supported"}
+        if not filename.lower().endswith(('.txt', '.pdf')):
+            return {"ok": False, "error": "Only .txt and .pdf files are supported"}
         
         if not file_content:
             return {"ok": False, "error": "File content cannot be empty"}
@@ -72,10 +84,10 @@ class RAGClient:
                 "file": (filename, file_obj, "text/plain")
             }
             
-            # Prepare the data payload
-            data = {
-                "embedding_provider": embedding_provider
-            }
+            # Prepare the data payload with embedding provider and model
+            data = {"embedding_provider": embedding_provider}
+            if model_name:
+                data["model_name"] = model_name
             
             resp = requests.post(endpoint, files=files, data=data, timeout=adaptive_timeout)
             resp.raise_for_status()

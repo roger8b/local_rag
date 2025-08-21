@@ -1,14 +1,28 @@
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 
 class QueryRequest(BaseModel):
     question: str = Field(..., description="The question to be answered", min_length=1)
+    provider: Optional[Literal["ollama", "openai", "gemini"]] = Field(
+        None, 
+        description="LLM provider to use for this query. If not specified, uses the default configured provider."
+    )
+    model_name: Optional[str] = Field(
+        None,
+        description="Optional specific model name to use within the chosen provider."
+    )
+    model_name: Optional[str] = Field(
+        None,
+        description="Specific model to use within the provider. If not specified, uses the default model for the provider."
+    )
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "question": "Quais são os componentes principais do sistema RAG?"
+                "question": "Quais são os componentes principais do sistema RAG?",
+                "provider": "openai",
+                "model_name": "gpt-4o-mini"
             }
         }
     )
@@ -31,6 +45,8 @@ class QueryResponse(BaseModel):
     answer: str = Field(..., description="The generated answer from the LLM")
     sources: List[DocumentSource] = Field(..., description="List of document chunks used as sources")
     question: str = Field(..., description="The original question")
+    provider_used: str = Field(..., description="The LLM provider that was used to generate this response")
+    logs: Optional[List[dict]] = Field(None, description="Structured processing logs for UI rendering")
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -46,6 +62,7 @@ class QueryResponse(BaseModel):
                     },
                 ],
                 "question": "Quais são os componentes principais do sistema RAG?",
+                "provider_used": "openai"
             }
         }
     )
@@ -70,6 +87,7 @@ class IngestResponse(BaseModel):
     document_id: Optional[str] = Field(None, description="ID of the created document")
     chunks_created: Optional[int] = Field(None, description="Number of chunks created")
     message: Optional[str] = Field(None, description="Additional information")
+    logs: Optional[List[dict]] = Field(None, description="Structured processing logs for UI rendering")
     model_config = ConfigDict(
         json_schema_extra={
             "example": {

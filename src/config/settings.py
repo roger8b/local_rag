@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, Literal
 
 
 class Settings(BaseSettings):
@@ -10,18 +10,31 @@ class Settings(BaseSettings):
     # Controla se devemos chamar verify_connectivity() na inicialização do driver
     neo4j_verify_connectivity: bool = True
     
+    # Provider Configuration
+    llm_provider: Literal["ollama", "openai", "gemini"] = "ollama"
+    embedding_provider: Literal["ollama", "openai"] = "ollama"
+    
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
     embedding_model: str = "nomic-embed-text"
     llm_model: str = "qwen3:8b"
+    ollama_default_model: str = "qwen3:8b"  # Default model for dynamic selection
     embedding_dimension: int = 768
     embedding_batch_size: int = 32
     embedding_max_retries: int = 10
 
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4o-mini"
+    openai_default_model: str = "gpt-4o-mini"  # Default model for dynamic selection
+    openai_embedding_model: str = "text-embedding-3-small"
     # Default embedding dimensions for OpenAI text-embedding-3 models
     openai_embedding_dimensions: int = 768
+    
+    # Google Configuration
+    google_api_key: Optional[str] = None
+    google_model: str = "gemini-2.0-flash-exp"
+    gemini_default_model: str = "gemini-2.0-flash-exp"  # Default model for dynamic selection
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379"
