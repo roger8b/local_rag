@@ -95,3 +95,20 @@ class RAGClient:
         except requests.exceptions.RequestException as e:
             return {"ok": False, "error": str(e)}
 
+    def list_documents(self) -> Dict[str, Any]:
+        """List ingested documents via API."""
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/documents", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def delete_document(self, doc_id: str) -> Dict[str, Any]:
+        """Delete a document and its chunks via API."""
+        try:
+            resp = requests.delete(f"{self.base_url}/api/v1/documents/{doc_id}", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}

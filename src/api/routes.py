@@ -7,6 +7,7 @@ from src.application.services.ingestion_service import IngestionService, is_vali
 from src.config.settings import settings
 import logging
 import httpx
+from neo4j import GraphDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -289,3 +290,57 @@ def _get_gemini_models():
         ],
         "default": settings.gemini_default_model
     }
+
+
+@router.get(
+    "/documents",
+    summary="Lista documentos ingeridos",
+    tags=["documents"],
+)
+async def list_documents():
+    try:
+        driver = GraphDatabase.driver(settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password))
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (d:Document)
+                RETURN d.doc_id as doc_id, d.filename as filename, d.filetype as filetype, d.ingested_at as ingested_at
+                ORDER BY d.ingested_at DESC
+                """
+            )
+            docs = [
+                {
+                    "doc_id": r["doc_id"],
+                    "filename": r["filename"],
+                    "filetype": r["filetype"],
+                    "ingested_at": r["ingested_at"],
+                }
+                for r in result
+            ]
+            return docs
+    except Exception as e:
+        logger.error(f"Error listing documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete(
+    "/documents/{doc_id}",
+    summary="Remove documento e seus chunks",
+    tags=["documents"],
+)
+async def delete_document(doc_id: str):
+    try:
+        driver = GraphDatabase.driver(settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password))
+        with driver.session() as session:
+            session.run(
+                """
+                MATCH (d:Document {doc_id: $doc_id})
+                OPTIONAL MATCH (d)<-[:PART_OF]-(c:Chunk)
+                DETACH DELETE d, c
+                """,
+                doc_id=doc_id,
+            )
+        return {"status": "deleted", "doc_id": doc_id}
+    except Exception as e:
+        logger.error(f"Error deleting document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

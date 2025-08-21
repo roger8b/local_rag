@@ -178,10 +178,17 @@ class IngestionService:
     def _save_document_graph(self, chunks: List[Dict[str, Any]], filename: str, document_id: str):
         if self._db_disabled: return
         create_chunks_query = """
+        MERGE (d:Document {doc_id: $document_id})
+        SET d.filename = $source_file,
+            d.filetype = toLower(right($source_file, 3)),
+            d.ingested_at = coalesce(d.ingested_at, datetime())
+        WITH d
         UNWIND $chunks_data AS chunk
         CREATE (c:Chunk { id: chunk.chunk_id, text: chunk.text, embedding: chunk.embedding,
             source_file: $source_file, document_id: $document_id, chunk_index: chunk.chunk_index,
             created_at: datetime() })
+        WITH c
+        MERGE (c)-[:PART_OF]->(d)
         """
         connect_chunks_query = """
         MATCH (c1:Chunk {document_id: $document_id})
