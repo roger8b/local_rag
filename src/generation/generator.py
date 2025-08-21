@@ -64,16 +64,25 @@ def create_llm_provider_dynamic(provider_override: Optional[str] = None) -> Tupl
 
 class ResponseGenerator:
     def __init__(self, provider_override: Optional[str] = None):
-        if provider_override:
-            self.provider, self.provider_name = create_llm_provider_dynamic(provider_override)
-        else:
-            self.provider = create_llm_provider()
-            self.provider_name = settings.llm_provider.lower()
-    
+        # Lazy initialization to avoid requiring provider credentials at construction time
+        self.provider: Optional[LLMProvider] = None
+        self.provider_name: str = (
+            provider_override.lower() if provider_override else settings.llm_provider.lower()
+        )
+
+    def _ensure_provider(self) -> LLMProvider:
+        if self.provider is None:
+            # Resolve provider lazily; honor the chosen provider_name
+            provider, effective_name = create_llm_provider_dynamic(self.provider_name)
+            self.provider = provider
+            self.provider_name = effective_name
+        return self.provider
+
     async def generate_response(self, question: str, sources: List[DocumentSource]) -> str:
         """Generate response using the configured LLM provider"""
-        return await self.provider.generate_response(question, sources)
-    
+        provider = self._ensure_provider()
+        return await provider.generate_response(question, sources)
+
     def get_provider_name(self) -> str:
         """Get the name of the provider being used"""
         return self.provider_name
