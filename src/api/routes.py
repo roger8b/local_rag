@@ -80,7 +80,8 @@ async def ingest_endpoint(
                 filename=file.filename,
                 document_id=result["document_id"],
                 chunks_created=result["chunks_created"],
-                message="Document successfully ingested and indexed"
+                message="Document successfully ingested and indexed",
+                logs=result.get("logs")
             )
             
         finally:
@@ -146,8 +147,13 @@ async def query_endpoint(request: QueryRequest):
         generator = ResponseGenerator(provider_override=request.provider)
         
         try:
+            import time
+            logs: list[dict] = []
+            t0 = time.perf_counter()
             # Retrieve relevant documents
+            t_ret = time.perf_counter()
             sources = await retriever.retrieve(request.question)
+            logs.append({"level": "info", "message": f"Busca vetorial retornou {len(sources)} fontes.", "duration_ms": round((time.perf_counter()-t_ret)*1000, 2)})
             
             if not sources:
                 raise HTTPException(
@@ -156,13 +162,16 @@ async def query_endpoint(request: QueryRequest):
                 )
             
             # Generate response
+            t_gen = time.perf_counter()
             answer = await generator.generate_response(request.question, sources)
+            logs.append({"level": "info", "message": f"Resposta gerada por '{generator.get_provider_name()}'.", "duration_ms": round((time.perf_counter()-t_gen)*1000, 2)})
             
             return QueryResponse(
                 answer=answer,
                 sources=sources,
                 question=request.question,
-                provider_used=generator.get_provider_name()
+                provider_used=generator.get_provider_name(),
+                logs=logs + [{"level": "success", "message": f"Consulta concluída em {round((time.perf_counter()-t0), 2)}s."}]
             )
             
         finally:

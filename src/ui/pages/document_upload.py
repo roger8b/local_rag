@@ -251,6 +251,25 @@ def render_page(rag_client=None, st=None):
                 with col2:
                     st.caption(f"🔍 **{selected_embedding_provider}** • {selected_embedding_model}")
                 
+                # Render processing logs if provided by API
+                logs = result_data.get("logs")
+                if logs:
+                    with st.expander("🧪 Detalhes do Processamento"):
+                        for entry in logs:
+                            level = (entry.get("level") or "info").lower()
+                            msg = entry.get("message", "")
+                            dur = entry.get("duration_ms")
+                            suffix = f" ({dur} ms)" if dur is not None else ""
+                            text = f"{msg}{suffix}"
+                            if level in ("success",):
+                                st.success(text)
+                            elif level in ("warning",):
+                                st.warning(text)
+                            elif level in ("error",):
+                                st.error(text)
+                            else:
+                                st.info(text)
+                
             else:
                 error_msg = result.get("error", "Erro desconhecido")
                 st.error(f"❌ **Erro**: {error_msg}")

@@ -95,6 +95,24 @@ def render_page(rag_client=None, st=None, selected_provider=None, selected_model
                         for i, source in enumerate(data["sources"], 1):
                             st.markdown(f"**Fonte {i}** (score: {source['score']:.3f})")
                             st.markdown(f"```\n{source['text'][:200]}...\n```")
+                # Show processing logs if provided
+                logs = data.get("logs")
+                if logs:
+                    with st.expander("🧪 Detalhes do Processamento"):
+                        for entry in logs:
+                            level = (entry.get("level") or "info").lower()
+                            msg = entry.get("message", "")
+                            dur = entry.get("duration_ms")
+                            suffix = f" ({dur} ms)" if dur is not None else ""
+                            text = f"{msg}{suffix}"
+                            if level in ("success",):
+                                st.success(text)
+                            elif level in ("warning",):
+                                st.warning(text)
+                            elif level in ("error",):
+                                st.error(text)
+                            else:
+                                st.info(text)
         else:
             friendly = "Desculpe, não consegui processar sua pergunta. Tente novamente."
             error_detail = result.get("error", "")

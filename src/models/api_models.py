@@ -11,6 +11,10 @@ class QueryRequest(BaseModel):
     )
     model_name: Optional[str] = Field(
         None,
+        description="Optional specific model name to use within the chosen provider."
+    )
+    model_name: Optional[str] = Field(
+        None,
         description="Specific model to use within the provider. If not specified, uses the default model for the provider."
     )
     model_config = ConfigDict(
@@ -42,6 +46,7 @@ class QueryResponse(BaseModel):
     sources: List[DocumentSource] = Field(..., description="List of document chunks used as sources")
     question: str = Field(..., description="The original question")
     provider_used: str = Field(..., description="The LLM provider that was used to generate this response")
+    logs: Optional[List[dict]] = Field(None, description="Structured processing logs for UI rendering")
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -82,6 +87,7 @@ class IngestResponse(BaseModel):
     document_id: Optional[str] = Field(None, description="ID of the created document")
     chunks_created: Optional[int] = Field(None, description="Number of chunks created")
     message: Optional[str] = Field(None, description="Additional information")
+    logs: Optional[List[dict]] = Field(None, description="Structured processing logs for UI rendering")
     model_config = ConfigDict(
         json_schema_extra={
             "example": {

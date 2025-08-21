@@ -379,6 +379,9 @@ class IngestionService:
     # --- Main Ingestion Pipeline ---
 
     async def ingest_from_content(self, content: str, filename: str, embedding_provider: str = None, model_name: str = None) -> Dict[str, Any]:
+        import time
+        logs: list[dict] = []
+        t_start = time.perf_counter()
         try:
             logger.info(f"Starting GENERIC knowledge ingestion for {filename}")
             document_id = str(uuid.uuid4())
@@ -387,29 +390,39 @@ class IngestionService:
             ollama_healthy = await self._check_ollama_health()
             if not ollama_healthy:
                 logger.warning("Ollama not available, continuing with document chunking only")
+                logs.append({"level": "warning", "message": "Ollama indisponível; prosseguindo sem extração de conhecimento."})
             
             # --- Schema Inference Phase ---
             content_sample = content[:4000]
+            t_schema = time.perf_counter()
             inferred_schema = await self._infer_graph_schema(content_sample)
+            logs.append({"level": "info", "message": "Esquema inferido.", "duration_ms": round((time.perf_counter()-t_schema)*1000, 2)})
             
             # --- Document Graph Phase ---
             self._ensure_vector_index()
+            t_chunk = time.perf_counter()
             text_chunks = self._create_chunks(content)
             if not text_chunks:
                 raise ValueError("No content to process after chunking")
+            logs.append({"level": "info", "message": f"Texto dividido em {len(text_chunks)} chunks.", "duration_ms": round((time.perf_counter()-t_chunk)*1000, 2)})
 
             # Generate embeddings with fallback
             try:
                 # Use provided embedding provider or fall back to settings
                 selected_provider = embedding_provider or settings.embedding_provider
+                t_embed = time.perf_counter()
                 embeddings = await self._generate_embeddings(text_chunks, provider=selected_provider)
+                logs.append({"level": "info", "message": f"Embeddings gerados via {selected_provider}.", "duration_ms": round((time.perf_counter()-t_embed)*1000, 2)})
             except Exception:
                 logger.warning("Embedding generation failed; using zero vectors as fallback.")
                 dim = getattr(settings, "openai_embedding_dimensions", 768)
                 embeddings = [[0.0] * dim for _ in text_chunks]
+                logs.append({"level": "warning", "message": "Falha ao gerar embeddings; usando vetores zero como fallback."})
 
             # Persist using helper (no-op in degraded mode)
+            t_save = time.perf_counter()
             document_id = self._save_to_neo4j(text_chunks, embeddings, filename)
+            logs.append({"level": "info", "message": "Chunks e embeddings persistidos.", "duration_ms": round((time.perf_counter()-t_save)*1000, 2)})
 
             # Reconstroi a lista de chunks para a fase de extração de conhecimento
             chunk_data_list = []
@@ -424,25 +437,35 @@ class IngestionService:
             # --- Knowledge Graph Phase (only if Ollama is the selected provider) ---
             if ollama_healthy and selected_provider == "ollama":
                 logger.info("Starting knowledge extraction phase with inferred schema (Ollama provider)...")
+                logs.append({"level": "info", "message": "Extração de conhecimento iniciada."})
                 for chunk_data in chunk_data_list:
                     extracted_knowledge = await self._call_ollama_for_extraction(chunk_data["text"], inferred_schema)
                     if extracted_knowledge and (extracted_knowledge.get("entities") or extracted_knowledge.get("relationships")):
                         self._save_knowledge_graph(chunk_data["chunk_id"], extracted_knowledge)
+                logs.append({"level": "info", "message": "Extração de conhecimento concluída."})
             else:
-                logger.warning(f"Skipping knowledge extraction phase. Reason: Ollama not healthy or provider is '{selected_provider}'.")
+                msg = f"Extração de conhecimento pulada (Ollama indisponível ou provider='{selected_provider}')."
+                logger.warning(msg)
+                logs.append({"level": "warning", "message": msg})
 
             logger.info(f"Generic knowledge ingestion completed for document {document_id}")
+            logs.append({"level": "success", "message": f"Ingestão concluída em {round((time.perf_counter()-t_start), 2)}s."})
             return {
                 "document_id": document_id, 
                 "chunks_created": len(text_chunks),
                 "filename": filename, 
                 "status": "success", 
                 "inferred_schema": inferred_schema,
-                "ollama_available": ollama_healthy
+                "ollama_available": ollama_healthy,
+                "logs": logs,
             }
             
         except Exception as e:
             logger.error(f"Error during generic knowledge ingestion: {str(e)}")
+            try:
+                logs.append({"level": "error", "message": f"Erro: {str(e)}"})
+            except Exception:
+                pass
             raise Exception(f"Generic ingestion failed: {str(e)}")
 
     async def ingest_from_file_upload(self, file_content: bytes, filename: str, embedding_provider: str = "ollama", model_name: str = None):
