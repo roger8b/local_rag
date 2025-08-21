@@ -344,3 +344,70 @@ async def delete_document(doc_id: str):
     except Exception as e:
         logger.error(f"Error deleting document {doc_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/db/status",
+    summary="Status do banco de dados",
+    tags=["db"],
+)
+async def db_status():
+    try:
+        driver = GraphDatabase.driver(settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password))
+        with driver.session() as session:
+            # Count documents and chunks
+            docs = session.run("MATCH (d:Document) RETURN count(d) as total").single()["total"]
+            chunks = session.run("MATCH (c:Chunk) RETURN count(c) as total").single()["total"]
+            idx = session.run("SHOW INDEXES YIELD name WHERE name = 'document_embeddings'")
+            vector_index_exists = idx.single() is not None
+            return {
+                "documents": docs,
+                "chunks": chunks,
+                "vector_index_exists": vector_index_exists,
+            }
+    except Exception as e:
+        logger.error(f"Error fetching DB status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/db/reindex",
+    summary="(Re)cria o índice vetorial",
+    tags=["db"],
+)
+async def db_reindex():
+    try:
+        driver = GraphDatabase.driver(settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password))
+        with driver.session() as session:
+            query = f"""
+            CREATE VECTOR INDEX document_embeddings IF NOT EXISTS
+            FOR (c:Chunk) ON (c.embedding)
+            OPTIONS {{ indexConfig: {{
+                `vector.dimensions`: {settings.openai_embedding_dimensions},
+                `vector.similarity_function`: 'cosine'
+            }}}}
+            """
+            session.run(query)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error creating vector index: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete(
+    "/db/clear",
+    summary="Limpa dados de desenvolvimento",
+    tags=["db"],
+)
+async def db_clear(confirm: Optional[bool] = False):
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Confirmation 'confirm=true' is required")
+    try:
+        driver = GraphDatabase.driver(settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password))
+        with driver.session() as session:
+            session.run("DROP INDEX document_embeddings IF EXISTS")
+            session.run("MATCH (n:Chunk) DETACH DELETE n")
+        return {"status": "cleared"}
+    except Exception as e:
+        logger.error(f"Error clearing database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

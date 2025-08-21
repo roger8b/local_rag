@@ -112,3 +112,30 @@ class RAGClient:
             return {"ok": True, "data": resp.json()}
         except requests.exceptions.RequestException as e:
             return {"ok": False, "error": str(e)}
+
+    def get_db_status(self) -> Dict[str, Any]:
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/db/status", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def reindex_db(self) -> Dict[str, Any]:
+        try:
+            resp = requests.post(f"{self.base_url}/api/v1/db/reindex", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def clear_db(self, confirm: bool) -> Dict[str, Any]:
+        try:
+            url = f"{self.base_url}/api/v1/db/clear"
+            if confirm:
+                url += "?confirm=true"
+            resp = requests.delete(url, timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
