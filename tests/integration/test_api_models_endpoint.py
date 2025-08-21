@@ -4,7 +4,7 @@ Seguindo metodologia TDD para Fase 5.1
 """
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, Mock, MagicMock
 from src.main import app
 
 
@@ -26,9 +26,13 @@ class TestModelsEndpoint:
         """
         AC 2: Test que endpoint retorna lista de modelos do Ollama
         """
-        with patch('httpx.get') as mock_get:
-            # Mock resposta do Ollama API
-            mock_response = AsyncMock()
+        with patch('src.api.routes.httpx.AsyncClient') as mock_client_class:
+            # Mock do AsyncClient e seu context manager
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            
+            # Mock resposta do Ollama API - usar valores síncronos
+            mock_response = Mock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
                 "models": [
@@ -36,13 +40,22 @@ class TestModelsEndpoint:
                     {"name": "llama2:13b", "size": 7300000000}
                 ]
             }
-            mock_get.return_value = mock_response
+            mock_response.raise_for_status = Mock()
+            
+            # O get deve retornar o mock_response que será await
+            async def mock_get(*args, **kwargs):
+                return mock_response
+            
+            mock_client.get = mock_get
             
             client = TestClient(app)
             response = client.get("/api/v1/models/ollama")
             
+            print(f"Response status: {response.status_code}")
+            print(f"Response content: {response.content}")
             assert response.status_code == 200
             data = response.json()
+            print(f"Response data: {data}")
             assert "models" in data
             assert "default" in data
             assert isinstance(data["models"], list)
@@ -105,10 +118,11 @@ class TestModelsEndpoint:
         """
         Test que erro do Ollama offline é tratado graciosamente
         """
-        with patch('httpx.AsyncClient') as mock_client:
-            # Mock erro de conexão com Ollama
-            mock_instance = mock_client.return_value.__aenter__.return_value
-            mock_instance.get.side_effect = Exception("Connection refused")
+        with patch('src.api.routes.httpx.AsyncClient') as mock_client_class:
+            # Mock HTTP error using the same pattern as other tests
+            mock_client_instance = MagicMock()
+            mock_client_instance.get.side_effect = Exception("Connection refused")
+            mock_client_class.return_value.__aenter__.return_value = mock_client_instance
             
             client = TestClient(app)
             response = client.get("/api/v1/models/ollama")
