@@ -13,14 +13,28 @@ class TestModelsEndpoint:
     
     def test_models_endpoint_not_implemented_yet(self):
         """
-        AC 1: Test que endpoint GET /api/v1/models/{provider} existe
-        Este teste falhará inicialmente até implementarmos o endpoint
+        AC 1: Test que endpoint GET /api/v1/models/{provider} existe.
+        Para ser determinístico no CI (sem Ollama real), mockamos a chamada HTTP
+        para retornar 200 e uma lista válida de modelos.
         """
-        client = TestClient(app)
-        response = client.get("/api/v1/models/ollama")
-        
-        # Inicialmente falhará com 404, depois implementamos para passar
-        assert response.status_code in [200], f"Expected success status, got {response.status_code}"
+        with patch('src.api.routes.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"models": [{"name": "qwen3:8b"}]}
+            mock_response.raise_for_status = MagicMock()
+
+            async def mock_get(*args, **kwargs):
+                return mock_response
+
+            mock_client.get = mock_get
+
+            client = TestClient(app)
+            response = client.get("/api/v1/models/ollama")
+
+            assert response.status_code == 200
     
     def test_ollama_models_list(self):
         """
