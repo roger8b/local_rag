@@ -34,6 +34,7 @@ python run_api.py
 - POST /api/v1/ingest (upload de .txt e .pdf)
 - POST /api/v1/query
 - GET /api/v1/models/{provider}
+- POST /api/v1/schema/infer (inferência de schema de grafo)
 - GET /api/v1/documents (Fase 6)
 - DELETE /api/v1/documents/{doc_id} (Fase 6)
 

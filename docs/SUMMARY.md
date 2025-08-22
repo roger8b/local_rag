@@ -7,6 +7,7 @@
 - Ingestão (API e pipeline): ingestion.md
 - Suporte para PDFs: pdf_support.md
 - Consulta (API): query.md
+- Inferência de Schema: schema_inference.md
 - Reset do Neo4j: neo4j_reset.md
 - Troubleshooting: troubleshooting.md
 
@@ -20,6 +21,7 @@ docs/
   overview.md
   pdf_support.md
   query.md
+  schema_inference.md
   setup.md
   troubleshooting.md
 ```

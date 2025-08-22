@@ -99,3 +99,42 @@ class IngestResponse(BaseModel):
             }
         }
     )
+
+
+class SchemaInferRequest(BaseModel):
+    text: str = Field(..., description="Text sample to analyze for schema inference", min_length=1)
+    max_sample_length: Optional[int] = Field(
+        500, 
+        description="Maximum length of text to analyze (default: 500 characters)",
+        ge=50,
+        le=2000
+    )
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "text": "João Silva trabalha na empresa TechCorp desde 2020. Ele é responsável pelo desenvolvimento de aplicações web utilizando React e Node.js. A TechCorp é uma startup de tecnologia focada em soluções de e-commerce.",
+                "max_sample_length": 1000
+            }
+        }
+    )
+
+
+class SchemaInferResponse(BaseModel):
+    node_labels: List[str] = Field(..., description="List of inferred node/entity types")
+    relationship_types: List[str] = Field(..., description="List of inferred relationship types")
+    source: Literal["llm", "fallback"] = Field(..., description="Source of the schema inference")
+    model_used: Optional[str] = Field(None, description="LLM model used for inference (if applicable)")
+    processing_time_ms: float = Field(..., description="Processing time in milliseconds")
+    reason: Optional[str] = Field(None, description="Reason for fallback (if applicable)")
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "node_labels": ["Person", "Company", "Technology", "Role", "Industry"],
+                "relationship_types": ["WORKS_AT", "RESPONSIBLE_FOR", "USES", "FOUNDED_IN", "FOCUSES_ON"],
+                "source": "llm",
+                "model_used": "qwen3:8b",
+                "processing_time_ms": 1250.5,
+                "reason": None
+            }
+        }
+    )

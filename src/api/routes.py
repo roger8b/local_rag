@@ -1,12 +1,14 @@
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from typing import Optional
-from src.models.api_models import QueryRequest, QueryResponse, ErrorResponse, IngestResponse
+from src.models.api_models import QueryRequest, QueryResponse, ErrorResponse, IngestResponse, SchemaInferRequest, SchemaInferResponse
 from src.retrieval.retriever import VectorRetriever
 from src.generation.generator import ResponseGenerator
 from src.application.services.ingestion_service import IngestionService, is_valid_file_type
+from src.application.services.admin_service import DatabaseAdminService
 from src.config.settings import settings
 import logging
 import httpx
+import time
 from neo4j import GraphDatabase
 
 logger = logging.getLogger(__name__)
@@ -429,18 +431,104 @@ async def db_reindex():
 
 @router.delete(
     "/db/clear",
-    summary="Limpa dados de desenvolvimento",
+    summary="Limpa TODOS os dados do banco de dados",
     tags=["db"],
 )
-async def db_clear(confirm: Optional[bool] = False):
-    if not confirm:
-        raise HTTPException(status_code=400, detail="Confirmation 'confirm=true' is required")
+async def db_clear():
+    """Endpoint para limpar completamente o banco de dados Neo4j, incluindo todos os nós, relacionamentos e índices."""
     try:
-        driver = GraphDatabase.driver(settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password))
-        with driver.session() as session:
-            session.run("DROP INDEX document_embeddings IF EXISTS")
-            session.run("MATCH (n:Chunk) DETACH DELETE n")
-        return {"status": "cleared"}
+        admin_service = DatabaseAdminService()
+        try:
+            result = admin_service.clear_database()
+            return result
+        finally:
+            admin_service.close()
+    except ConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"Error clearing database: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/schema/infer",
+    response_model=SchemaInferResponse,
+    summary="Infere schema de grafo a partir de texto",
+    operation_id="postSchemaInfer",
+    tags=["schema"],
+    responses={
+        200: {
+            "description": "Schema inferido com sucesso",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "node_labels": ["Person", "Company", "Technology"],
+                        "relationship_types": ["WORKS_AT", "USES", "DEVELOPS"],
+                        "source": "llm",
+                        "model_used": "qwen3:8b",
+                        "processing_time_ms": 1250.5
+                    }
+                }
+            }
+        },
+        422: {"model": ErrorResponse, "description": "Validation Error"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"}
+    }
+)
+async def infer_schema_endpoint(request: SchemaInferRequest):
+    """
+    Infer a graph schema (node types and relationship types) from a text sample
+    
+    - **text**: Text sample to analyze for schema inference (required, min 1 character)
+    - **max_sample_length**: Maximum length of text to analyze (optional, default: 500, range: 50-2000)
+    
+    Uses the same LLM-based inference logic used internally during document ingestion.
+    If the LLM service is unavailable, returns a fallback schema.
+    """
+    start_time = time.perf_counter()
+    
+    try:
+        # Truncate text if needed
+        text_sample = request.text[:request.max_sample_length] if len(request.text) > request.max_sample_length else request.text
+        
+        # Initialize ingestion service to use its schema inference
+        ingestion_service = IngestionService()
+        
+        try:
+            # Call the existing schema inference method
+            schema_result = await ingestion_service._infer_graph_schema(text_sample)
+            
+            processing_time = (time.perf_counter() - start_time) * 1000
+            
+            # Determine if this was LLM-generated or fallback
+            is_fallback = (
+                schema_result.get("node_labels") == ["Entity", "Concept"] and 
+                schema_result.get("relationship_types") == ["RELATED_TO", "MENTIONS"]
+            )
+            
+            return SchemaInferResponse(
+                node_labels=schema_result.get("node_labels", []),
+                relationship_types=schema_result.get("relationship_types", []),
+                source="fallback" if is_fallback else "llm",
+                model_used=settings.llm_model if not is_fallback else None,
+                processing_time_ms=round(processing_time, 2),
+                reason="LLM service unavailable or model not available" if is_fallback else None
+            )
+            
+        finally:
+            # Clean up resources
+            ingestion_service.close()
+            
+    except Exception as e:
+        processing_time = (time.perf_counter() - start_time) * 1000
+        logger.error(f"Error during schema inference: {str(e)}")
+        
+        # Return fallback schema in case of any error
+        return SchemaInferResponse(
+            node_labels=["Entity", "Concept"],
+            relationship_types=["RELATED_TO", "MENTIONS"],
+            source="fallback",
+            model_used=None,
+            processing_time_ms=round(processing_time, 2),
+            reason=f"Error during processing: {str(e)}"
+        )
