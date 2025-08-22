@@ -139,3 +139,11 @@ class RAGClient:
             return {"ok": True, "data": resp.json()}
         except requests.exceptions.RequestException as e:
             return {"ok": False, "error": str(e)}
+
+    def list_document_chunks(self, doc_id: str, limit: int = 200) -> Dict[str, Any]:
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/documents/{doc_id}/chunks", params={"limit": limit}, timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}

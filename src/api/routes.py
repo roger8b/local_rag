@@ -347,6 +347,39 @@ async def delete_document(doc_id: str):
 
 
 @router.get(
+    "/documents/{doc_id}/chunks",
+    summary="Lista chunks de um documento",
+    tags=["documents"],
+)
+async def list_document_chunks(doc_id: str, limit: int = 200):
+    try:
+        driver = GraphDatabase.driver(settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password))
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (c:Chunk {document_id: $doc_id})
+                RETURN c.chunk_index as chunk_index, c.text as text, c.source_file as source_file
+                ORDER BY c.chunk_index
+                LIMIT $limit
+                """,
+                doc_id=doc_id,
+                limit=limit,
+            )
+            chunks = [
+                {
+                    "chunk_index": r["chunk_index"],
+                    "text": r["text"],
+                    "source_file": r.get("source_file"),
+                }
+                for r in result
+            ]
+            return chunks
+    except Exception as e:
+        logger.error(f"Error listing chunks for {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
     "/db/status",
     summary="Status do banco de dados",
     tags=["db"],

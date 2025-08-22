@@ -47,3 +47,21 @@ class TestDocumentsAPI:
             assert body["status"] == "deleted"
             assert body["doc_id"] == "doc-123"
 
+    def test_list_document_chunks(self):
+        client = TestClient(app)
+        with patch("src.api.routes.GraphDatabase.driver") as mock_driver:
+            session = MagicMock()
+            mock_driver.return_value.session.return_value.__enter__.return_value = session
+
+            class FakeResult:
+                def __iter__(self):
+                    yield {"chunk_index": 0, "text": "Hello", "source_file": "a.txt"}
+                    yield {"chunk_index": 1, "text": "World", "source_file": "a.txt"}
+
+            session.run.return_value = FakeResult()
+
+            resp = client.get("/api/v1/documents/doc-1/chunks?limit=2")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert isinstance(data, list)
+            assert data[0]["chunk_index"] == 0

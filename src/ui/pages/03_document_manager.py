@@ -37,9 +37,21 @@ def render_page(rag_client=None, st=None):
         c[2].markdown(str(doc.get("ingested_at", "-")))
         c[3].code(doc.get("doc_id", "-"))
 
-        if c[4].button("Remover", key=f"del-{doc.get('doc_id')}"):
+        doc_id = doc.get("doc_id")
+        # Expand to show chunks
+        with c[0].expander("Ver chunks"):
+            limit = st.slider("Limite", min_value=10, max_value=500, value=100, key=f"lim-{doc_id}")
+            res_chunks = rag_client.list_document_chunks(doc_id, limit=limit)
+            if res_chunks.get("ok"):
+                lst = res_chunks.get("data", [])
+                for ch in lst:
+                    st.markdown(f"- idx {ch.get('chunk_index')}: {ch.get('text','')[:160]}...")
+            else:
+                st.error(f"Erro ao listar chunks: {res_chunks.get('error')}")
+
+        if c[4].button("Remover", key=f"del-{doc_id}"):
             with st.spinner("Removendo documento..."):
-                del_res = rag_client.delete_document(doc.get("doc_id"))
+                del_res = rag_client.delete_document(doc_id)
             if del_res.get("ok"):
                 st.success("Documento removido com sucesso.")
                 try:
@@ -52,4 +64,3 @@ def render_page(rag_client=None, st=None):
 
 if __name__ == "__main__":
     render_page()
-
