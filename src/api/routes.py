@@ -1,10 +1,16 @@
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from typing import Optional
-from src.models.api_models import QueryRequest, QueryResponse, ErrorResponse, IngestResponse, SchemaInferRequest, SchemaInferResponse
+from src.models.api_models import (
+    QueryRequest, QueryResponse, ErrorResponse, IngestResponse, 
+    SchemaInferRequest, SchemaInferResponse, SchemaInferByKeyRequest,
+    SchemaUploadResponse, DocumentCacheListResponse, DocumentRemoveResponse,
+    TextStats
+)
 from src.retrieval.retriever import VectorRetriever
 from src.generation.generator import ResponseGenerator
 from src.application.services.ingestion_service import IngestionService, is_valid_file_type
 from src.application.services.admin_service import DatabaseAdminService
+from src.application.services.document_cache_service import get_document_cache_service
 from src.config.settings import settings
 import logging
 import httpx
@@ -451,9 +457,124 @@ async def db_clear():
 
 
 @router.post(
+    "/schema/upload",
+    response_model=SchemaUploadResponse,
+    status_code=201,
+    summary="Upload de documento para inferência de schema",
+    operation_id="postSchemaUpload", 
+    tags=["schema"],
+    responses={
+        201: {"model": SchemaUploadResponse, "description": "Document uploaded successfully"},
+        415: {"model": ErrorResponse, "description": "Unsupported Media Type"},
+        422: {"model": ErrorResponse, "description": "Validation Error"},
+        413: {"model": ErrorResponse, "description": "File too large"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"}
+    }
+)
+async def schema_upload_endpoint(file: UploadFile = File(...)):
+    """
+    Upload a document for schema inference
+    
+    - **file**: Document file (.txt or .pdf) to be analyzed for schema inference
+    
+    The file will be processed, text extracted, and stored temporarily in memory.
+    Returns a unique key that can be used with the /schema/infer endpoint.
+    Documents are automatically removed after 30 minutes.
+    """
+    try:
+        # Validate file type
+        if not is_valid_file_type(file.filename):
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Unsupported file type: {file.filename}. Only .txt and .pdf files are supported."
+            )
+        
+        # Read file content
+        file_content = await file.read()
+        
+        if not file_content:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="File is empty"
+            )
+        
+        # Check file size (50MB limit)
+        max_size = 50 * 1024 * 1024  # 50MB
+        if len(file_content) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum size is {max_size // (1024*1024)}MB"
+            )
+        
+        # Extract text using ingestion service (measure processing time)
+        processing_start = time.perf_counter()
+        ingestion_service = IngestionService()
+        try:
+            text_content = await ingestion_service._extract_text_from_file_content(file_content, file.filename)
+        finally:
+            ingestion_service.close()
+        processing_time_ms = (time.perf_counter() - processing_start) * 1000
+        
+        if not text_content or not text_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No text content could be extracted from the file"
+            )
+        
+        # Store in cache
+        cache_service = get_document_cache_service()
+        try:
+            key = await cache_service.store_document(
+                text_content=text_content,
+                filename=file.filename,
+                file_size_bytes=len(file_content),
+                processing_time_ms=processing_time_ms
+            )
+            
+            # Get document info for response
+            document = await cache_service.get_document(key)
+            if not document:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to store document in cache"
+                )
+            
+            return SchemaUploadResponse(
+                key=document.key,
+                filename=document.filename,
+                file_size_bytes=document.file_size_bytes,
+                text_stats=TextStats(
+                    total_chars=document.text_stats.total_chars,
+                    total_words=document.text_stats.total_words,
+                    total_lines=document.text_stats.total_lines
+                ),
+                processing_time_ms=document.processing_time_ms,
+                created_at=document.created_at,
+                expires_at=document.expires_at,
+                file_type=document.file_type
+            )
+            
+        except ValueError as e:
+            # Cache full or other cache error
+            raise HTTPException(
+                status_code=status.HTTP_507_INSUFFICIENT_STORAGE,
+                detail=str(e)
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing file upload for schema: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+
+@router.post(
     "/schema/infer",
     response_model=SchemaInferResponse,
-    summary="Infere schema de grafo a partir de texto",
+    summary="Infere schema de grafo a partir de texto ou chave de documento",
     operation_id="postSchemaInfer",
     tags=["schema"],
     responses={
@@ -475,11 +596,12 @@ async def db_clear():
         500: {"model": ErrorResponse, "description": "Internal Server Error"}
     }
 )
-async def infer_schema_endpoint(request: SchemaInferRequest):
+async def infer_schema_endpoint(request: SchemaInferByKeyRequest):
     """
-    Infer a graph schema (node types and relationship types) from a text sample
+    Infer a graph schema (node types and relationship types) from text or uploaded document
     
-    - **text**: Text sample to analyze for schema inference (required, min 1 character)
+    - **document_key**: Key of uploaded document to analyze (alternative to text)
+    - **text**: Direct text to analyze (alternative to document_key)
     - **max_sample_length**: Maximum length of text to analyze (optional, default: 500, range: 50-2000)
     
     Uses the same LLM-based inference logic used internally during document ingestion.
@@ -488,15 +610,79 @@ async def infer_schema_endpoint(request: SchemaInferRequest):
     start_time = time.perf_counter()
     
     try:
+        # Validate that either document_key or text is provided
+        if not request.document_key and not request.text:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Either 'document_key' or 'text' must be provided"
+            )
+        
+        if request.document_key and request.text:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Provide either 'document_key' OR 'text', not both"
+            )
+        
+        # Get text content and document info
+        text_content = ""
+        document_info = None
+        
+        if request.document_key:
+            # Get from cache
+            cache_service = get_document_cache_service()
+            document = await cache_service.get_document(request.document_key)
+            
+            if not document:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Document with key '{request.document_key}' not found or expired"
+                )
+            
+            text_content = document.text_content
+        else:
+            # Use direct text
+            text_content = request.text
+            # Note: text validation is handled by Pydantic model (min_length=1)
+        
+        # Calculate sample size based on percentage or absolute length
+        if request.max_sample_length is not None:
+            # Use absolute character count (backward compatibility)
+            sample_size = request.max_sample_length
+        else:
+            # For backward compatibility, if no max_sample_length provided, use 500 as default
+            # This maintains the original behavior when neither parameter is specified
+            if request.sample_percentage == 50 and request.max_sample_length is None:
+                # Default case - use 500 characters (original behavior)
+                sample_size = 500
+            else:
+                # Use percentage of total text
+                sample_size = int(len(text_content) * request.sample_percentage / 100)
+                # Ensure minimum of 50 characters
+                sample_size = max(sample_size, 50)
+        
         # Truncate text if needed
-        text_sample = request.text[:request.max_sample_length] if len(request.text) > request.max_sample_length else request.text
+        text_sample = text_content[:sample_size] if len(text_content) > sample_size else text_content
+        
+        # Prepare document info for response
+        document_info = None
+        if request.document_key:
+            document_info = {
+                "filename": document.filename,
+                "text_length": len(document.text_content),
+                "sample_used": len(text_sample),
+                "sample_percentage": round((len(text_sample) / len(document.text_content)) * 100, 1)
+            }
         
         # Initialize ingestion service to use its schema inference
         ingestion_service = IngestionService()
         
         try:
-            # Call the existing schema inference method
-            schema_result = await ingestion_service._infer_graph_schema(text_sample)
+            # Call the existing schema inference method with optional provider override
+            schema_result = await ingestion_service._infer_graph_schema(
+                text_sample, 
+                provider_override=request.llm_provider,
+                model_override=request.llm_model
+            )
             
             processing_time = (time.perf_counter() - start_time) * 1000
             
@@ -506,19 +692,30 @@ async def infer_schema_endpoint(request: SchemaInferRequest):
                 schema_result.get("relationship_types") == ["RELATED_TO", "MENTIONS"]
             )
             
+            # Determine actual provider and model used
+            actual_provider = request.llm_provider or settings.llm_provider
+            actual_model = request.llm_model or (
+                settings.openai_default_model if actual_provider == "openai"
+                else settings.gemini_default_model if actual_provider == "gemini"
+                else settings.ollama_default_model
+            )
+            
             return SchemaInferResponse(
                 node_labels=schema_result.get("node_labels", []),
                 relationship_types=schema_result.get("relationship_types", []),
                 source="fallback" if is_fallback else "llm",
-                model_used=settings.llm_model if not is_fallback else None,
+                model_used=f"{actual_provider}:{actual_model}" if not is_fallback else None,
                 processing_time_ms=round(processing_time, 2),
-                reason="LLM service unavailable or model not available" if is_fallback else None
+                reason="LLM service unavailable or model not available" if is_fallback else None,
+                document_info=document_info
             )
             
         finally:
             # Clean up resources
             ingestion_service.close()
             
+    except HTTPException:
+        raise
     except Exception as e:
         processing_time = (time.perf_counter() - start_time) * 1000
         logger.error(f"Error during schema inference: {str(e)}")
@@ -530,5 +727,113 @@ async def infer_schema_endpoint(request: SchemaInferRequest):
             source="fallback",
             model_used=None,
             processing_time_ms=round(processing_time, 2),
-            reason=f"Error during processing: {str(e)}"
+            reason=f"Error during processing: {str(e)}",
+            document_info=None
+        )
+
+
+@router.get(
+    "/schema/documents",
+    response_model=DocumentCacheListResponse,
+    summary="Lista documentos em cache para schema",
+    operation_id="getSchemaDocuments",
+    tags=["schema"],
+    responses={
+        200: {"model": DocumentCacheListResponse, "description": "List of cached documents"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"}
+    }
+)
+async def list_schema_documents_endpoint():
+    """
+    List all documents currently cached in memory for schema inference
+    
+    Returns information about cached documents including keys, filenames,
+    sizes, and expiration times.
+    """
+    try:
+        cache_service = get_document_cache_service()
+        
+        # Get documents and stats
+        documents = await cache_service.list_documents()
+        stats = await cache_service.get_cache_stats()
+        
+        # Convert to API model format
+        document_infos = []
+        for doc in documents:
+            document_infos.append({
+                "key": doc.key,
+                "filename": doc.filename,
+                "file_size_bytes": doc.file_size_bytes,
+                "text_stats": {
+                    "total_chars": doc.text_stats.total_chars,
+                    "total_words": doc.text_stats.total_words,
+                    "total_lines": doc.text_stats.total_lines
+                },
+                "created_at": doc.created_at,
+                "expires_at": doc.expires_at,
+                "last_accessed": doc.last_accessed
+            })
+        
+        return DocumentCacheListResponse(
+            documents=document_infos,
+            total_documents=stats["total_documents"],
+            memory_usage_mb=stats["memory_usage_mb"],
+            total_file_size_mb=stats["total_file_size_mb"],
+            max_documents=stats["max_documents"],
+            ttl_minutes=stats["ttl_minutes"]
+        )
+        
+    except Exception as e:
+        logger.error(f"Error listing schema documents: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+
+@router.delete(
+    "/schema/documents/{document_key}",
+    response_model=DocumentRemoveResponse,
+    summary="Remove documento do cache de schema",
+    operation_id="deleteSchemaDocument",
+    tags=["schema"],
+    responses={
+        200: {"model": DocumentRemoveResponse, "description": "Document removed successfully"},
+        404: {"model": ErrorResponse, "description": "Document not found"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"}
+    }
+)
+async def remove_schema_document_endpoint(document_key: str):
+    """
+    Remove a document from the schema cache
+    
+    - **document_key**: Key of the document to remove
+    
+    The document will be immediately removed from memory and can no longer be used
+    for schema inference.
+    """
+    try:
+        cache_service = get_document_cache_service()
+        
+        # Try to remove document
+        removed = await cache_service.remove_document(document_key)
+        
+        if not removed:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document with key '{document_key}' not found"
+            )
+        
+        return DocumentRemoveResponse(
+            message="Document removed successfully",
+            key=document_key
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing schema document {document_key}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
         )

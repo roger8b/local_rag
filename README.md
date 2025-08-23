@@ -34,7 +34,10 @@ python run_api.py
 - POST /api/v1/ingest (upload de .txt e .pdf)
 - POST /api/v1/query
 - GET /api/v1/models/{provider}
-- POST /api/v1/schema/infer (inferência de schema de grafo)
+- **POST /api/v1/schema/upload** (upload para inferência - com estatísticas detalhadas)
+- **POST /api/v1/schema/infer** (inferência via texto/chave - com controle percentual e seleção de modelo)
+- GET /api/v1/schema/documents (listar cache - com informações detalhadas)
+- DELETE /api/v1/schema/documents/{key} (remover do cache)
 - GET /api/v1/documents (Fase 6)
 - DELETE /api/v1/documents/{doc_id} (Fase 6)
 
