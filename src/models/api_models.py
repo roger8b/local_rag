@@ -32,11 +32,16 @@ class QueryRequest(BaseModel):
 class DocumentSource(BaseModel):
     text: str = Field(..., description="The text content of the chunk")
     score: float = Field(..., description="Similarity score of the chunk")
+    metadata: Optional[dict] = Field(None, description="Source metadata")
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "text": "O sistema RAG usa um retriever baseado em vetores e um gerador LLM.",
                 "score": 0.87,
+                "metadata": {
+                    "source_file": "doc.txt",
+                    "chunk_index": 1
+                }
             }
         }
     )

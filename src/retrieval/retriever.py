@@ -176,7 +176,7 @@ class VectorRetriever:
                             "source_file": record.get("source_file"),
                             "chunk_index": record.get("chunk_index"),
                             "document_id": record.get("document_id")
-                        } if hasattr(DocumentSource, 'metadata') else None
+                        }
                     ))
                 
                 logger.info(f"Retrieved {len(sources)} similar chunks")
