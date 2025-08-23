@@ -23,7 +23,7 @@ class TestDocumentCacheService:
         size_bytes = len(text_content.encode())
         
         # Store document
-        key = await cache_service.store_document(text_content, filename, size_bytes)
+        key = await cache_service.store_document(text_content, filename, size_bytes, 100.0)
         
         # Verify key format (UUID)
         assert len(key) == 36
@@ -36,7 +36,7 @@ class TestDocumentCacheService:
         assert document.key == key
         assert document.filename == filename
         assert document.text_content == text_content
-        assert document.size_bytes == size_bytes
+        assert document.file_size_bytes == size_bytes
         assert document.file_type == "txt"
     
     @pytest.mark.asyncio
@@ -49,7 +49,7 @@ class TestDocumentCacheService:
     async def test_remove_document(self, cache_service):
         """Test remoção de documento"""
         text_content = "Test document"
-        key = await cache_service.store_document(text_content, "test.txt", len(text_content))
+        key = await cache_service.store_document(text_content, "test.txt", len(text_content), 50.0)
         
         # Verify it exists
         document = await cache_service.get_document(key)
@@ -75,8 +75,8 @@ class TestDocumentCacheService:
         assert len(documents) == 0
         
         # Add some documents
-        key1 = await cache_service.store_document("Content 1", "doc1.txt", 9)
-        key2 = await cache_service.store_document("Content 2", "doc2.pdf", 9)
+        key1 = await cache_service.store_document("Content 1", "doc1.txt", 9, 10.0)
+        key2 = await cache_service.store_document("Content 2", "doc2.pdf", 9, 15.0)
         
         # List documents
         documents = await cache_service.list_documents()
@@ -94,17 +94,17 @@ class TestDocumentCacheService:
     async def test_file_type_detection(self, cache_service):
         """Test detecção de tipo de arquivo"""
         # Test TXT
-        key_txt = await cache_service.store_document("Text content", "document.txt", 12)
+        key_txt = await cache_service.store_document("Text content", "document.txt", 12, 20.0)
         doc_txt = await cache_service.get_document(key_txt)
         assert doc_txt.file_type == "txt"
         
         # Test PDF
-        key_pdf = await cache_service.store_document("PDF content", "document.pdf", 11)
+        key_pdf = await cache_service.store_document("PDF content", "document.pdf", 11, 25.0)
         doc_pdf = await cache_service.get_document(key_pdf)
         assert doc_pdf.file_type == "pdf"
         
         # Test unknown
-        key_unknown = await cache_service.store_document("Unknown content", "document.docx", 15)
+        key_unknown = await cache_service.store_document("Unknown content", "document.docx", 15, 30.0)
         doc_unknown = await cache_service.get_document(key_unknown)
         assert doc_unknown.file_type == "unknown"
     
@@ -120,7 +120,7 @@ class TestDocumentCacheService:
         
         # Add document
         content = "Test content for stats that is long enough to register memory usage"
-        await cache_service.store_document(content, "test.txt", len(content.encode()))
+        await cache_service.store_document(content, "test.txt", len(content.encode()), 40.0)
         
         # Check stats
         stats = await cache_service.get_cache_stats()
@@ -132,18 +132,18 @@ class TestDocumentCacheService:
         """Test limite máximo de documentos"""
         # Fill cache to limit (10 documents)
         for i in range(10):
-            await cache_service.store_document(f"Content {i}", f"doc{i}.txt", 10)
+            await cache_service.store_document(f"Content {i}", f"doc{i}.txt", 10, 5.0)
         
         # Try to add one more - should raise error
         with pytest.raises(ValueError, match="Cache full"):
-            await cache_service.store_document("Overflow", "overflow.txt", 8)
+            await cache_service.store_document("Overflow", "overflow.txt", 8, 2.0)
     
     @pytest.mark.asyncio 
     async def test_clear_all(self, cache_service):
         """Test limpeza completa do cache"""
         # Add some documents
-        await cache_service.store_document("Doc 1", "doc1.txt", 5)
-        await cache_service.store_document("Doc 2", "doc2.txt", 5)
+        await cache_service.store_document("Doc 1", "doc1.txt", 5, 10.0)
+        await cache_service.store_document("Doc 2", "doc2.txt", 5, 15.0)
         
         # Verify they exist
         docs = await cache_service.list_documents()
@@ -160,7 +160,7 @@ class TestDocumentCacheService:
     @pytest.mark.asyncio
     async def test_last_accessed_update(self, cache_service):
         """Test que last_accessed é atualizado no get"""
-        key = await cache_service.store_document("Test", "test.txt", 4)
+        key = await cache_service.store_document("Test", "test.txt", 4, 8.0)
         
         # Get document and record access time
         doc1 = await cache_service.get_document(key)

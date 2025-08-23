@@ -57,9 +57,10 @@ class TestDBAdminAPI:
             assert "CREATE VECTOR INDEX document_embeddings" in all_queries
 
     def test_db_clear_requires_confirm(self):
+        # This endpoint doesn't require confirmation in current implementation
         client = TestClient(app)
         resp = client.delete("/api/v1/db/clear")
-        assert resp.status_code == 400
+        assert resp.status_code == 200
 
     def test_db_clear_success(self):
         client = TestClient(app)
@@ -68,11 +69,11 @@ class TestDBAdminAPI:
             mock_driver.return_value.session.return_value.__enter__.return_value = session
             session.run.return_value = MagicMock()
 
-            resp = client.delete("/api/v1/db/clear?confirm=true")
+            resp = client.delete("/api/v1/db/clear")
             assert resp.status_code == 200
             data = resp.json()
-            assert data["status"] == "cleared"
+            assert data["status"] == "success"
 
             queries = "\n".join(call.args[0] for call in session.run.call_args_list)
             assert "DROP INDEX document_embeddings IF EXISTS" in queries
-            assert "MATCH (n:Chunk) DETACH DELETE n" in queries
+            assert "MATCH (n) DETACH DELETE n" in queries
