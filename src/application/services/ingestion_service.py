@@ -178,10 +178,17 @@ class IngestionService:
     def _save_document_graph(self, chunks: List[Dict[str, Any]], filename: str, document_id: str):
         if self._db_disabled: return
         create_chunks_query = """
+        MERGE (d:Document {doc_id: $document_id})
+        SET d.filename = $source_file,
+            d.filetype = toLower(right($source_file, 3)),
+            d.ingested_at = coalesce(d.ingested_at, datetime())
+        WITH d
         UNWIND $chunks_data AS chunk
         CREATE (c:Chunk { id: chunk.chunk_id, text: chunk.text, embedding: chunk.embedding,
             source_file: $source_file, document_id: $document_id, chunk_index: chunk.chunk_index,
             created_at: datetime() })
+        WITH c
+        MERGE (c)-[:PART_OF]->(d)
         """
         connect_chunks_query = """
         MATCH (c1:Chunk {document_id: $document_id})
@@ -226,64 +233,172 @@ class IngestionService:
 
     # --- Step 2: Generic Knowledge Graph Extraction ---
 
-    async def _infer_graph_schema(self, content_sample: str) -> Dict[str, List[str]]:
+    async def _infer_graph_schema(self, content_sample: str, provider_override: str = None, model_override: str = None) -> Dict[str, List[str]]:
         """Infer a graph schema from a sample of the document"""
         logger.info("Inferring graph schema from document content...")
         
-        # Check Ollama health first
-        if not await self._check_ollama_health():
-            logger.warning("Ollama not available, using fallback schema")
+        # Determine provider and model to use
+        provider = provider_override or settings.llm_provider
+        model = model_override or (settings.openai_default_model if provider == "openai" 
+                                  else settings.gemini_default_model if provider == "gemini" 
+                                  else settings.ollama_default_model)
+        
+        # Use direct provider calls for schema inference (not RAG-based)
+        if provider == "ollama":
+            return await self._infer_schema_with_ollama(content_sample, model)
+        elif provider == "openai":
+            return await self._infer_schema_with_openai(content_sample, model)
+        elif provider == "gemini":
+            return await self._infer_schema_with_gemini(content_sample, model)
+        else:
+            logger.warning(f"Unknown provider {provider}, using fallback schema")
             return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
-        
-        # Check if model is available
-        if not await self._check_model_availability(settings.llm_model):
-            logger.warning(f"Model {settings.llm_model} not available, using fallback schema")
-            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
-        
-        prompt = f"""
-        You are an expert data modeler and graph architect. Your task is to analyze the provided text
-        and propose a generic, yet effective, graph schema. Identify the main types of entities
-        (as node labels) and the types of relationships that connect them.
-
-        Return the result as a single, valid JSON object with two keys:
-        1. "node_labels": A list of strings representing the types of entities (e.g., "Person", "Company").
-        2. "relationship_types": A list of strings representing the types of relationships (e.g., "WORKS_AT", "INVESTED_IN").
-
-        Do not extract the actual data, only the schema.
-
-        Here is the text to analyze:
-        ---
-        {content_sample}
-        ---
-
-        JSON Schema:
-        """
-        
+    
+    async def _infer_schema_with_ollama(self, content_sample: str, model: str) -> Dict[str, List[str]]:
+        """Schema inference using Ollama"""
         try:
+            prompt = f"""You are an expert data modeler and graph architect. Your task is to analyze the provided text and propose a generic, yet effective, graph schema. Identify the main types of entities (as node labels) and the types of relationships that connect them.
+
+Return the result as a single, valid JSON object with two keys:
+1. "node_labels": A list of strings representing the types of entities (e.g., "Person", "Company").
+2. "relationship_types": A list of strings representing the types of relationships (e.g., "WORKS_AT", "INVESTED_IN").
+
+Do not extract the actual data, only the schema.
+
+Here is the text to analyze:
+---
+{content_sample}
+---
+
+JSON Schema:"""
+            
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"{settings.ollama_base_url}/api/generate",
                     json={
-                        "model": settings.llm_model,
+                        "model": model,
                         "prompt": prompt,
                         "stream": False,
                         "format": "json"
-                    },
+                    }
                 )
-                await self._safe_raise_for_status(response)
-                resp_json = response.json()
-                if asyncio.iscoroutine(resp_json):
-                    resp_json = await resp_json
-                response_text = resp_json["response"]
+                response.raise_for_status()
+                result = response.json()
+                response_text = result["response"]
+                
+                # Parse JSON response
+                import json
                 schema = json.loads(response_text)
-                logger.info(f"Inferred schema: {schema}")
+                
+                # Validate schema structure
+                if not isinstance(schema, dict) or "node_labels" not in schema or "relationship_types" not in schema:
+                    raise ValueError("Invalid schema format")
+                
+                logger.info(f"Inferred schema using ollama:{model}: {schema}")
                 return schema
                 
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error during schema inference: {e.response.status_code} - {e.response.text}")
-            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
         except Exception as e:
-            logger.error(f"Error during schema inference: {e}")
+            logger.warning(f"Schema inference failed with ollama:{model}: {e}, using fallback schema")
+            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
+    
+    async def _infer_schema_with_openai(self, content_sample: str, model: str) -> Dict[str, List[str]]:
+        """Schema inference using OpenAI"""
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            
+            prompt = f"""You are an expert data modeler and graph architect. Your task is to analyze the provided text and propose a generic, yet effective, graph schema.
+
+Identify the main types of entities (as node labels) and the types of relationships that connect them.
+
+Return the result as a single, valid JSON object with two keys:
+1. "node_labels": A list of strings representing the types of entities (e.g., "Person", "Company").
+2. "relationship_types": A list of strings representing the types of relationships (e.g., "WORKS_AT", "INVESTED_IN").
+
+Do not extract the actual data, only the schema.
+
+Here is the text to analyze:
+---
+{content_sample}
+---
+
+Respond with only the JSON schema:"""
+            
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a data modeling expert. Respond only with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.3
+            )
+            
+            response_text = response.choices[0].message.content
+            
+            # Parse JSON response
+            import json
+            schema = json.loads(response_text)
+            
+            # Validate schema structure
+            if not isinstance(schema, dict) or "node_labels" not in schema or "relationship_types" not in schema:
+                raise ValueError("Invalid schema format")
+            
+            logger.info(f"Inferred schema using openai:{model}: {schema}")
+            return schema
+            
+        except Exception as e:
+            logger.warning(f"Schema inference failed with openai:{model}: {e}, using fallback schema")
+            return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
+    
+    async def _infer_schema_with_gemini(self, content_sample: str, model: str) -> Dict[str, List[str]]:
+        """Schema inference using Google Gemini"""
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=settings.google_api_key)
+            
+            model_instance = genai.GenerativeModel(model)
+            
+            prompt = f"""You are an expert data modeler and graph architect. Your task is to analyze the provided text and propose a generic, yet effective, graph schema.
+
+Identify the main types of entities (as node labels) and the types of relationships that connect them.
+
+Return the result as a single, valid JSON object with two keys:
+1. "node_labels": A list of strings representing the types of entities (e.g., "Person", "Company").
+2. "relationship_types": A list of strings representing the types of relationships (e.g., "WORKS_AT", "INVESTED_IN").
+
+Do not extract the actual data, only the schema.
+
+Here is the text to analyze:
+---
+{content_sample}
+---
+
+Respond with only the JSON schema:"""
+            
+            response = await model_instance.generate_content_async(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3
+                )
+            )
+            
+            response_text = response.text
+            
+            # Parse JSON response
+            import json
+            schema = json.loads(response_text)
+            
+            # Validate schema structure
+            if not isinstance(schema, dict) or "node_labels" not in schema or "relationship_types" not in schema:
+                raise ValueError("Invalid schema format")
+            
+            logger.info(f"Inferred schema using gemini:{model}: {schema}")
+            return schema
+            
+        except Exception as e:
+            logger.warning(f"Schema inference failed with gemini:{model}: {e}, using fallback schema")
             return {"node_labels": ["Entity", "Concept"], "relationship_types": ["RELATED_TO", "MENTIONS"]}
 
     async def _call_ollama_for_extraction(self, chunk_text: str, schema: Dict[str, List[str]]) -> Dict[str, Any]:
@@ -479,4 +594,23 @@ class IngestionService:
         
         # Continuar com pipeline existente
         return await self.ingest_from_content(text_content, filename, embedding_provider, model_name)
+    
+    async def _extract_text_from_file_content(self, file_content: bytes, filename: str) -> str:
+        """
+        Extract text content from file bytes without ingesting
+        
+        Args:
+            file_content: Raw file content as bytes
+            filename: Name of the file for type detection
+            
+        Returns:
+            str: Extracted text content
+            
+        Raises:
+            ValueError: If file type is not supported
+        """
+        # Usar factory para obter loader apropriado
+        from .document_loaders import DocumentLoaderFactory
+        loader = DocumentLoaderFactory.get_loader(filename, file_content)
+        return loader.extract_text()
     

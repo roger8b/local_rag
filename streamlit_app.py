@@ -153,6 +153,38 @@ for provider, status in provider_status.items():
 
 # API Health Check
 st.sidebar.markdown("---")
+st.sidebar.markdown("#### 💣 Ações Destrutivas")
+
+if "confirm_delete" not in st.session_state:
+    st.session_state.confirm_delete = False
+
+if st.sidebar.button("🗑️ Limpar Banco de Dados"):
+    st.session_state.confirm_delete = True
+
+if st.session_state.confirm_delete:
+    st.sidebar.warning("**Atenção:** Esta ação é irreversível e apagará todos os dados.")
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("✅ Confirmar Limpeza"):
+            try:
+                response = requests.delete("http://localhost:8000/api/v1/db/clear", timeout=30)
+                if response.status_code == 200:
+                    st.toast("✅ Banco de dados limpo com sucesso!")
+                    # Potentially rerun to update stats if you have them
+                else:
+                    st.error(f"Erro ao limpar o banco: {response.text}")
+            except Exception as e:
+                st.error(f"Erro de conexão ao limpar o banco: {e}")
+            finally:
+                st.session_state.confirm_delete = False
+                st.rerun()
+    with col2:
+        if st.button("❌ Cancelar"):
+            st.session_state.confirm_delete = False
+            st.rerun()
+
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("#### 🔧 Status da API")
 try:
     response = requests.get("http://localhost:8000/health", timeout=2)

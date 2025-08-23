@@ -95,3 +95,55 @@ class RAGClient:
         except requests.exceptions.RequestException as e:
             return {"ok": False, "error": str(e)}
 
+    def list_documents(self) -> Dict[str, Any]:
+        """List ingested documents via API."""
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/documents", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def delete_document(self, doc_id: str) -> Dict[str, Any]:
+        """Delete a document and its chunks via API."""
+        try:
+            resp = requests.delete(f"{self.base_url}/api/v1/documents/{doc_id}", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def get_db_status(self) -> Dict[str, Any]:
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/db/status", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def reindex_db(self) -> Dict[str, Any]:
+        try:
+            resp = requests.post(f"{self.base_url}/api/v1/db/reindex", timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def clear_db(self, confirm: bool) -> Dict[str, Any]:
+        try:
+            url = f"{self.base_url}/api/v1/db/clear"
+            if confirm:
+                url += "?confirm=true"
+            resp = requests.delete(url, timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
+    def list_document_chunks(self, doc_id: str, limit: int = 200) -> Dict[str, Any]:
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/documents/{doc_id}/chunks", params={"limit": limit}, timeout=self.timeout)
+            resp.raise_for_status()
+            return {"ok": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"ok": False, "error": str(e)}
